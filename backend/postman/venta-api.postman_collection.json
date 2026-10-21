@@ -1,0 +1,1579 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Venta API",
+    "description": "Venta backend API collection.\n\n## Base URL\nAll endpoints are under `{{baseUrl}}` (default: `http://localhost:4000/api/v1`).\nService metadata: `GET {{serverUrl}}/` and `GET {{baseUrl}}/health`.\n\n## Quick start\n1. Register or Login — accessToken is saved automatically\n2. Setup: Menu → Floor Plan → Customers → Promotions (create + activate)\n3. Create Order (Full) — pass promotionId for discount\n4. Complete order: PREPARING → READY → COMPLETED (loyalty if customerId set)\n\n## Promotions on orders\n- Create promotion → PATCH activate → pass promotionId on POST /orders\n- PERCENTAGE or FIXED discount applied to subtotal before tax\n- Response: discountAmount, promotionTitle, reduced totalAmount\n\n## Loyalty\n- Pass customerId on Create Order\n- COMPLETED order earns 1 point per $1 (floor of totalAmount after discount)\n\nRefresh/Logout use the httpOnly refresh cookie from Register/Login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000/api/v1"
+    },
+    {
+      "key": "serverUrl",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "platformAccessToken",
+      "value": ""
+    },
+    {
+      "key": "businessSlug",
+      "value": "my-cafe"
+    },
+    {
+      "key": "email",
+      "value": "owner@my-cafe.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "staffId",
+      "value": ""
+    },
+    {
+      "key": "categoryId",
+      "value": ""
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "modifierGroupId",
+      "value": ""
+    },
+    {
+      "key": "tableId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "reservationId",
+      "value": ""
+    },
+    {
+      "key": "promotionId",
+      "value": ""
+    },
+    {
+      "key": "modifierOptionId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Service",
+      "item": [
+        {
+          "name": "Project Info (Root)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serverUrl}}/",
+              "host": ["{{serverUrl}}"],
+              "path": [""]
+            },
+            "description": "Enterprise-style service metadata: name, version, environment, module list, and API links."
+          },
+          "response": []
+        },
+        {
+          "name": "API Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serverUrl}}/api",
+              "host": ["{{serverUrl}}"],
+              "path": ["api"]
+            },
+            "description": "Lists available API versions and the current base path."
+          },
+          "response": []
+        },
+        {
+          "name": "API v1 Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Module catalog and links for the v1 API."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Platform Admin",
+      "description": "SaaS platform super admin and platform admin routes. Login saves platformAccessToken.",
+      "item": [
+        {
+          "name": "Platform Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('platformAccessToken', body.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"super@venta.com\",\n  \"password\": \"change-me-123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/platform/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Platform Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{platformAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "auth", "me"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Businesses",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{platformAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/businesses",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "businesses"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Platform Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{platformAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "metrics"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Platform Admin (Super Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{platformAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ops Admin\",\n  \"email\": \"ops@venta.com\",\n  \"password\": \"password123\",\n  \"role\": \"PLATFORM_ADMIN\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/platform/admins",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "admins"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend Business",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{platformAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/businesses/{{businessId}}/suspend",
+              "host": ["{{baseUrl}}"],
+              "path": ["platform", "businesses", "{{businessId}}", "suspend"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Verify the server is running."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register (Create Business + Owner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('businessSlug', body.data.user.businessSlug);",
+                  "  pm.collectionVariables.set('email', body.data.user.email);",
+                  "  pm.test('Registration successful', () => pm.response.to.have.status(201));",
+                  "  pm.test('Access token returned', () => pm.expect(body.data.accessToken).to.be.a('string'));",
+                  "  pm.test('Owner role assigned', () => pm.expect(body.data.user.roles).to.include('owner'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessName\": \"My Cafe\",\n  \"businessSlug\": \"{{businessSlug}}\",\n  \"name\": \"Jane Owner\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Creates a new business and registers the first user as owner. Sets refresh_token cookie automatically."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('businessSlug', body.data.user.businessSlug);",
+                  "  pm.collectionVariables.set('email', body.data.user.email);",
+                  "  pm.test('Login successful', () => pm.response.to.have.status(200));",
+                  "  pm.test('Access token returned', () => pm.expect(body.data.accessToken).to.be.a('string'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessSlug\": \"{{businessSlug}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Login with business slug + email + password. Email is unique per business, not globally."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.test('Token refreshed', () => pm.response.to.have.status(200));",
+                  "  pm.test('New access token returned', () => pm.expect(body.data.accessToken).to.be.a('string'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            },
+            "description": "Uses the refresh_token httpOnly cookie from Register/Login. Run Register or Login first."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User (Me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('User returned', () => pm.response.to.have.status(200));",
+                  "  pm.test('Has roles', () => pm.expect(body.data.user.roles).to.be.an('array'));",
+                  "  pm.test('Has permissions', () => pm.expect(body.data.user.permissions).to.be.an('array'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            },
+            "description": "Returns the authenticated user with roles and permissions. Requires Bearer access token."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Check (Owner Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Owner authorized', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/admin-check",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "admin-check"]
+            },
+            "description": "Requires business.manage permission (owner only). Returns 403 for employee role."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.unset('accessToken');",
+                  "  pm.test('Logged out', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Revokes the refresh token family and clears the cookie. Uses refresh_token cookie from Register/Login."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Business",
+      "item": [
+        {
+          "name": "Get Business Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/business/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["business", "me"]
+            },
+            "description": "Get current business profile. Any authenticated staff member."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Business Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Updated Cafe\",\n  \"location\": \"123 Main Street, Downtown\",\n  \"logoUrl\": \"https://example.com/logo.png\",\n  \"primaryColor\": \"#FF5733\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/business/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["business", "me"]
+            },
+            "description": "Update business name, location, logo, brand color. Owner only (business.manage)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Staff",
+      "item": [
+        {
+          "name": "List Staff",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/staff",
+              "host": ["{{baseUrl}}"],
+              "path": ["staff"]
+            },
+            "description": "List all staff in the business. Requires staff.manage permission."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Staff Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('staffId', pm.response.json().data.staff.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Employee\",\n  \"email\": \"employee@my-cafe.com\",\n  \"password\": \"password123\",\n  \"roleName\": \"employee\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/staff",
+              "host": ["{{baseUrl}}"],
+              "path": ["staff"]
+            },
+            "description": "Create a new staff member. Owner can assign any role; manager can assign manager/employee."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Staff Member",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleName\": \"manager\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/staff/{{staffId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["staff", "{{staffId}}"]
+            },
+            "description": "Update staff name or role. Cannot modify yourself."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate Staff Member",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/staff/{{staffId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["staff", "{{staffId}}", "status"]
+            },
+            "description": "Activate or deactivate a staff member. Cannot deactivate the last owner."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Menu",
+      "item": [
+        {
+          "name": "Get Full Menu",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/menu",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu"]
+            },
+            "description": "Returns categories with items and modifier groups. Requires menu.manage or orders.view."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('categoryId', pm.response.json().data.category.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Espresso\",\n  \"displayOrder\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "categories"]
+            },
+            "description": "Create a menu category. Requires menu.manage."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Menu Item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('itemId', pm.response.json().data.item.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoryId\": \"{{categoryId}}\",\n  \"name\": \"Latte\",\n  \"description\": \"Espresso with steamed milk\",\n  \"price\": \"4.50\",\n  \"imageUrl\": \"https://example.com/latte.jpg\",\n  \"displayOrder\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/items",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "items"]
+            },
+            "description": "Create a menu item in a category."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Modifier Group",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('modifierGroupId', pm.response.json().data.modifierGroup.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Milk Type\",\n  \"isRequired\": true,\n  \"minSelect\": 1,\n  \"maxSelect\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/modifier-groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "modifier-groups"]
+            },
+            "description": "Create a modifier group e.g. Milk Type, Size, Temperature."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Modifier Option",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('modifierOptionId', pm.response.json().data.modifierOption.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Oat Milk\",\n  \"priceAdjustment\": \"0.50\",\n  \"displayOrder\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/modifier-groups/{{modifierGroupId}}/options",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "modifier-groups", "{{modifierGroupId}}", "options"]
+            },
+            "description": "Add an option to a modifier group with optional price adjustment."
+          },
+          "response": []
+        },
+        {
+          "name": "Link Modifier Group to Item",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modifierGroupId\": \"{{modifierGroupId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/items/{{itemId}}/modifier-groups",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "items", "{{itemId}}", "modifier-groups"]
+            },
+            "description": "Attach a modifier group to a menu item."
+          },
+          "response": []
+        },
+        {
+          "name": "Toggle Item Availability",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isAvailable\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/menu/items/{{itemId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["menu", "items", "{{itemId}}"]
+            },
+            "description": "Mark item in/out of stock."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Floor Plan",
+      "item": [
+        {
+          "name": "List Tables",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/floor-plan/tables",
+              "host": ["{{baseUrl}}"],
+              "path": ["floor-plan", "tables"]
+            },
+            "description": "Get all tables on the floor plan with positions and status."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Table",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('tableId', pm.response.json().data.table.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tableIdentifier\": \"T1\",\n  \"layoutX\": 100,\n  \"layoutY\": 200,\n  \"width\": 80,\n  \"height\": 80,\n  \"capacity\": 4\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/floor-plan/tables",
+              "host": ["{{baseUrl}}"],
+              "path": ["floor-plan", "tables"]
+            },
+            "description": "Place a table on the floor plan canvas."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Table Position/Size",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"layoutX\": 150,\n  \"layoutY\": 250,\n  \"width\": 100,\n  \"height\": 90\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/floor-plan/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["floor-plan", "tables", "{{tableId}}"]
+            },
+            "description": "Move or resize a table on the canvas."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Table Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"OCCUPIED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/floor-plan/tables/{{tableId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["floor-plan", "tables", "{{tableId}}", "status"]
+            },
+            "description": "Statuses: AVAILABLE, OCCUPIED, RESERVED, NEEDS_CLEANING"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Table",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/floor-plan/tables/{{tableId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["floor-plan", "tables", "{{tableId}}"]
+            },
+            "description": "Remove a table from the floor plan."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create Order (Full)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('orderId', pm.response.json().data.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"STAFF_ASSISTED\",\n  \"tableId\": \"{{tableId}}\",\n  \"customerId\": \"{{customerId}}\",\n  \"promotionId\": \"{{promotionId}}\",\n  \"notes\": \"Extra hot, no sugar\",\n  \"taxRate\": 0,\n  \"serviceRate\": 0,\n  \"items\": [\n    {\n      \"menuItemId\": \"{{itemId}}\",\n      \"quantity\": 2,\n      \"modifierOptionIds\": [\"{{modifierOptionId}}\"],\n      \"customizationNotes\": \"Oat milk, less ice\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            },
+            "description": "All create-order fields:\n- source: STAFF_ASSISTED | QR_CUSTOMER\n- tableId (optional): links order to floor table → marks OCCUPIED\n- customerId (optional): links customer → earns loyalty on COMPLETED\n- promotionId (optional): apply active promotion — must be activated and within start/end dates\n- notes: order-level notes\n- taxRate / serviceRate: override business defaults (0 tax by default, 0 service)\n- items[].menuItemId, quantity, modifierOptionIds[], customizationNotes\n\nPromotion: discount applied to subtotal before tax. Response includes discountAmount, promotionTitle.\n\nPrerequisites: itemId, tableId, customerId, promotionId (activate first), modifierOptionId."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order (QR Customer - minimal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('orderId', pm.response.json().data.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"QR_CUSTOMER\",\n  \"tableId\": \"{{tableId}}\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{itemId}}\",\n      \"quantity\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            },
+            "description": "Counter/table QR order — no customerId unless guest is logged in on frontend."
+          },
+          "response": []
+        },
+        {
+          "name": "List Orders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            },
+            "description": "List all orders. Optional filter: ?status=RECEIVED|PREPARING|READY|COMPLETED|CANCELLED"
+          },
+          "response": []
+        },
+        {
+          "name": "List Orders (filter PREPARING)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders?status=PREPARING",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"],
+              "query": [{ "key": "status", "value": "PREPARING" }]
+            },
+            "description": "Filter orders by status query param."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}"]
+            },
+            "description": "Returns order with items, modifiers, pricing breakdown, tableIdentifier, customerId."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Order Status → PREPARING",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PREPARING\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            },
+            "description": "Status flow: RECEIVED → PREPARING → READY → COMPLETED (or CANCELLED at any active step)."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Order Status → READY",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"READY\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            },
+            "description": "Move order to READY for pickup/serving."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Order Status → COMPLETED (earns loyalty)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"COMPLETED\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            },
+            "description": "Completes order. If customerId was set on create, auto-earns loyalty points (1 pt per $1). Table → NEEDS_CLEANING."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"CANCELLED\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "{{orderId}}", "status"]
+            },
+            "description": "Cancel from RECEIVED, PREPARING, or READY."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Kitchen (KDS)",
+      "item": [
+        {
+          "name": "Kitchen Queue (all active)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/kitchen/queue", "host": ["{{baseUrl}}"], "path": ["kitchen", "queue"] },
+            "description": "Returns RECEIVED + PREPARING + READY orders by default."
+          },
+          "response": []
+        },
+        {
+          "name": "Kitchen Queue (filter PREPARING)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/kitchen/queue?status=PREPARING",
+              "host": ["{{baseUrl}}"],
+              "path": ["kitchen", "queue"],
+              "query": [{ "key": "status", "value": "PREPARING" }]
+            },
+            "description": "Optional status: RECEIVED | PREPARING | READY"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Kitchen Order",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/kitchen/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["kitchen", "orders", "{{orderId}}"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Update Kitchen Order Status",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"PREPARING\"\n}" },
+            "url": { "raw": "{{baseUrl}}/kitchen/orders/{{orderId}}/status", "host": ["{{baseUrl}}"], "path": ["kitchen", "orders", "{{orderId}}", "status"] },
+            "description": "Same status transitions as /orders/:id/status."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Reservations",
+      "item": [
+        {
+          "name": "Check Availability",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reservations/availability?date=2026-08-01T00:00:00.000Z&partySize=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["reservations", "availability"],
+              "query": [
+                { "key": "date", "value": "2026-08-01T00:00:00.000Z" },
+                { "key": "partySize", "value": "2" }
+              ]
+            },
+            "description": "Hourly slots 9am–9pm with availableTables count."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Reservation",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 201) { pm.collectionVariables.set('reservationId', pm.response.json().data.reservation.id); }"] } }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"tableId\": \"{{tableId}}\",\n  \"customerId\": \"{{customerId}}\",\n  \"customerName\": \"Jane Doe\",\n  \"customerContact\": \"jane@example.com\",\n  \"partySize\": 2,\n  \"reservationTime\": \"2026-08-01T18:00:00.000Z\",\n  \"notes\": \"Window seat preferred\"\n}" },
+            "url": { "raw": "{{baseUrl}}/reservations", "host": ["{{baseUrl}}"], "path": ["reservations"] },
+            "description": "All fields: tableId, customerId, customerName, customerContact, partySize, reservationTime, notes."
+          },
+          "response": []
+        },
+        {
+          "name": "List Reservations",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reservations?date=2026-08-01T00:00:00.000Z&status=CONFIRMED",
+              "host": ["{{baseUrl}}"],
+              "path": ["reservations"],
+              "query": [
+                { "key": "date", "value": "2026-08-01T00:00:00.000Z" },
+                { "key": "status", "value": "CONFIRMED" }
+              ]
+            },
+            "description": "Optional filters: date, status (PENDING|CONFIRMED|SEATED|COMPLETED|CANCELLED|NO_SHOW)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Reservation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/reservations/{{reservationId}}", "host": ["{{baseUrl}}"], "path": ["reservations", "{{reservationId}}"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Update Reservation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"partySize\": 4,\n  \"reservationTime\": \"2026-08-01T19:00:00.000Z\",\n  \"notes\": \"Updated: need high chair\"\n}" },
+            "url": { "raw": "{{baseUrl}}/reservations/{{reservationId}}", "host": ["{{baseUrl}}"], "path": ["reservations", "{{reservationId}}"] },
+            "description": "Reschedule or update any reservation field."
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Reservation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"CONFIRMED\"\n}" },
+            "url": { "raw": "{{baseUrl}}/reservations/{{reservationId}}/status", "host": ["{{baseUrl}}"], "path": ["reservations", "{{reservationId}}", "status"] },
+            "description": "CONFIRMED → table RESERVED. Flow: PENDING→CONFIRMED→SEATED→COMPLETED"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Reservation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"CANCELLED\"\n}" },
+            "url": { "raw": "{{baseUrl}}/reservations/{{reservationId}}/status", "host": ["{{baseUrl}}"], "path": ["reservations", "{{reservationId}}", "status"] },
+            "description": "Frees table if one was assigned."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Customers & Loyalty",
+      "item": [
+        {
+          "name": "List Customers",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/customers?search=jane",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"],
+              "query": [{ "key": "search", "value": "jane", "description": "Optional: name, email, or phone" }]
+            },
+            "description": "Search customer directory. Omit ?search for full list."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Customer",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 201) { pm.collectionVariables.set('customerId', pm.response.json().data.customer.id); }"] } }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\",\n  \"phoneNumber\": \"+15551234567\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers", "host": ["{{baseUrl}}"], "path": ["customers"] },
+            "description": "All fields: name (required), email, phoneNumber. Use customerId on Create Order for loyalty."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["customers", "{{customerId}}"] },
+            "description": "Returns profile including loyaltyPoints balance."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Jane Smith\",\n  \"email\": \"jane.smith@example.com\",\n  \"phoneNumber\": \"+15559876543\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["customers", "{{customerId}}"] },
+            "description": "Partial update — any of name, email, phoneNumber."
+          },
+          "response": []
+        },
+        {
+          "name": "Earn Loyalty Points (manual)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"points\": 50,\n  \"reason\": \"Birthday bonus\",\n  \"orderId\": \"{{orderId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers/{{customerId}}/loyalty/earn", "host": ["{{baseUrl}}"], "path": ["customers", "{{customerId}}", "loyalty", "earn"] },
+            "description": "Manual points credit. orderId optional — links to an order for audit."
+          },
+          "response": []
+        },
+        {
+          "name": "Redeem Loyalty Points",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"points\": 10,\n  \"reason\": \"Free drink redemption\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers/{{customerId}}/loyalty/redeem", "host": ["{{baseUrl}}"], "path": ["customers", "{{customerId}}", "loyalty", "redeem"] },
+            "description": "Deduct points. Fails if balance insufficient."
+          },
+          "response": []
+        },
+        {
+          "name": "Loyalty History",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/{{customerId}}/loyalty/history", "host": ["{{baseUrl}}"], "path": ["customers", "{{customerId}}", "loyalty", "history"] },
+            "description": "All EARN / REDEEM / ADJUST transactions with reason and optional orderId."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Promotions",
+      "item": [
+        {
+          "name": "List Promotions",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/promotions?activeOnly=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["promotions"],
+              "query": [{ "key": "activeOnly", "value": "true" }]
+            },
+            "description": "Optional activeOnly=true|false filter."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Promotion",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 201) { pm.collectionVariables.set('promotionId', pm.response.json().data.promotion.id); }"] } }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Happy Hour\",\n  \"description\": \"10% off all drinks 4–6pm\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 10,\n  \"startDate\": \"2026-07-29T00:00:00.000Z\",\n  \"endDate\": \"2026-08-29T00:00:00.000Z\"\n}" },
+            "url": { "raw": "{{baseUrl}}/promotions", "host": ["{{baseUrl}}"], "path": ["promotions"] },
+            "description": "discountType: PERCENTAGE | FIXED. All date fields ISO 8601."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Promotion",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Update Promotion",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Extended Happy Hour\",\n  \"description\": \"Now until 7pm\",\n  \"discountValue\": 15\n}" },
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Activate Promotion",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}/activate", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}", "activate"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Deactivate Promotion",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}/deactivate", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}", "deactivate"] },
+            "response": []
+          }
+        },
+        {
+          "name": "Broadcast Promotion",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}/broadcast", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}", "broadcast"] },
+            "description": "Sends email/SMS notification logs to all customers with contact info."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "QR & Public",
+      "item": [
+        {
+          "name": "Counter QR",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/qr/counter", "host": ["{{baseUrl}}"], "path": ["qr", "counter"] },
+            "description": "Returns { type, url, businessSlug } for counter ordering landing page."
+          },
+          "response": []
+        },
+        {
+          "name": "Table QR",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/qr/tables/{{tableId}}", "host": ["{{baseUrl}}"], "path": ["qr", "tables", "{{tableId}}"] },
+            "description": "Returns table-specific QR URL with tableIdentifier."
+          },
+          "response": []
+        },
+        {
+          "name": "Public Menu (no auth)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/public/{{businessSlug}}", "host": ["{{baseUrl}}"], "path": ["public", "{{businessSlug}}"] },
+            "description": "Business branding + full menu for QR landing pages."
+          },
+          "response": []
+        },
+        {
+          "name": "Public Table Info (no auth)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/public/{{businessSlug}}/tables/T1", "host": ["{{baseUrl}}"], "path": ["public", "{{businessSlug}}", "tables", "T1"] },
+            "description": "Resolve table by tableIdentifier (e.g. T1) for table QR scans."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notification Logs",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/notifications/logs?channel=EMAIL&status=SENT",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "logs"],
+              "query": [
+                { "key": "channel", "value": "EMAIL", "description": "EMAIL | SMS" },
+                { "key": "status", "value": "SENT", "description": "PENDING | SENT | FAILED" }
+              ]
+            },
+            "description": "Audit trail for reservation confirmations, promotion broadcasts, etc."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        {
+          "name": "Get Subscription",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/billing/subscription", "host": ["{{baseUrl}}"], "path": ["billing", "subscription"] },
+            "description": "Returns subscriptionStatus: ACTIVE | PAST_DUE | CANCELLED | TRIAL"
+          },
+          "response": []
+        },
+        {
+          "name": "Stripe Webhook (stub)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"invoice.payment_succeeded\",\n  \"data\": {\n    \"businessId\": \"YOUR_BUSINESS_UUID\"\n  }\n}" },
+            "url": { "raw": "{{baseUrl}}/billing/webhooks/stripe", "host": ["{{baseUrl}}"], "path": ["billing", "webhooks", "stripe"] },
+            "description": "Stub webhook. Types: invoice.payment_succeeded → ACTIVE, invoice.payment_failed → PAST_DUE, customer.subscription.deleted → CANCELLED"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

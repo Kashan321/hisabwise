@@ -1,0 +1,105 @@
+# Deploy Venta when code is pushed to main.
+#
+# Required GitHub repository secrets:
+#   DEPLOY_HOST      - Server IP or hostname
+#   DEPLOY_USER      - SSH user (e.g. ubuntu, deploy)
+#   DEPLOY_SSH_KEY   - Private SSH key (full PEM contents)
+#   DEPLOY_PATH      - Absolute path to the app on the server (e.g. /var/www/venta)
+#
+# Required GitHub repository variables (Settings → Secrets and variables → Actions → Variables):
+#   NEXT_PUBLIC_API_URL - Public API URL used to build the frontend (e.g. https://api.yourdomain.com/api/v1)
+#
+# Server prerequisites: Node.js 20+, npm, git, PM2, PostgreSQL, Redis, backend/.env, frontend/.env.local
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & verify
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/venta
+      JWT_ACCESS_SECRET: ci-build-secret-minimum-16-chars
+      JWT_REFRESH_SECRET: ci-build-secret-minimum-16-chars
+      REDIS_URL: redis://localhost:6379
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: venta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install and build backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Node.js for frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install and build frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
+            echo "NEXT_PUBLIC_API_URL repository variable is not set."
+            exit 1
+          fi
+          npm ci
+          npm run build
+
+  deploy:
+    name: Deploy to server
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            bash deploy/deploy.sh

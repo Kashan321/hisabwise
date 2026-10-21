@@ -1,0 +1,46 @@
+import type { Order } from '@/lib/api/types';
+
+export const SAMPLE_RECEIPT_ORDER: Order = {
+  id: 'sample-order',
+  status: 'COMPLETED',
+  source: 'STAFF',
+  orderType: 'DINE_IN',
+  paymentMethod: 'CASH',
+  paymentStatus: 'PAID',
+  payments: [
+    {
+      id: 'pay-sample',
+      method: 'CASH',
+      amount: 180,
+      amountReceived: 200,
+      changeGiven: 20,
+      referenceNumber: null,
+      createdAt: new Date().toISOString(),
+    },
+  ],
+  subtotal: 100,
+  discountAmount: 0,
+  taxAmount: 80,
+  serviceAmount: 0,
+  deliveryAmount: 0,
+  totalAmount: 180,
+  notes: 'Less sugar in chai.',
+  promotionTitle: null,
+  createdAt: new Date().toISOString(),
+  ticketLabel: 'KBB-260923-004',
+  createdByName: 'Kabab',
+  customerName: 'Ali Khan',
+  customerPhone: '0321 1234567',
+  items: [
+    {
+      id: 'item-1',
+      menuItemName: 'Chai',
+      quantity: 1,
+      unitPrice: 100,
+      lineTotal: 100,
+      variantName: null,
+      customizationNotes: 'Extra hot',
+      modifiers: [{ id: 'mod-1', modifierName: 'Full cream', priceAdjustment: 0 }],
+    },
+  ],
+};
