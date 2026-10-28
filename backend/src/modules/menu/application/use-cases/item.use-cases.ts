@@ -18,6 +18,19 @@ type ItemWriteInput = MenuWeightConfigInput & {
   displayOrder?: number;
 };
 
+function wantsPricingFieldUpdate(input: ItemWriteInput): boolean {
+  return (
+    input.pricingType !== undefined ||
+    input.price !== undefined ||
+    input.pricePerUnit !== undefined ||
+    input.pricingUnitG !== undefined ||
+    input.minWeightG !== undefined ||
+    input.weightStepG !== undefined ||
+    input.quickWeightsG !== undefined ||
+    input.priceRounding !== undefined
+  );
+}
+
 function mapPricingFields(input: ItemWriteInput) {
   try {
     return resolveMenuItemPriceFields({
@@ -93,19 +106,22 @@ export class UpdateMenuItemUseCase {
     }
 
     let pricingFields: ReturnType<typeof mapPricingFields> | undefined;
-    if (
-      input.pricingType != null ||
-      input.price != null ||
-      input.pricePerUnit != null ||
-      input.pricingUnitG != null ||
-      input.minWeightG !== undefined ||
-      input.weightStepG !== undefined ||
-      input.quickWeightsG !== undefined ||
-      input.priceRounding !== undefined
-    ) {
+    if (wantsPricingFieldUpdate(input)) {
+      const existingItem = await this.menuRepository.findItemById(businessId, itemId);
+      if (!existingItem) throw new MenuItemNotFoundError();
+
+      const pricingType =
+        input.pricingType ??
+        (existingItem.pricingType === 'BY_WEIGHT' ? 'by_weight' : 'fixed');
+
+      let price = input.price;
+      if (price == null && variantCount > 0 && pricingType === 'fixed') {
+        price = existingItem.price;
+      }
+
       pricingFields = mapPricingFields({
-        pricingType: input.pricingType ?? 'fixed',
-        price: input.price,
+        pricingType,
+        price,
         pricePerUnit: input.pricePerUnit,
         pricingUnitG: input.pricingUnitG,
         minWeightG: input.minWeightG,

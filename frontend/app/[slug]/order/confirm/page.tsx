@@ -8,6 +8,7 @@ import { clearOrderSession } from '@/lib/cart-storage';
 import { usePublicMenu, usePublicOrder } from '@/lib/hooks/queries';
 import { formatCurrency } from '@/lib/format-currency';
 import { themeToStyle } from '@/lib/theme/theme-css';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import { APP_NAME } from '@/lib/config';
 import { useToast } from '@/lib/toast';
@@ -157,7 +158,7 @@ function ConfirmContent({ slug }: { slug: string }) {
                 tableLabel: 'QR Order',
                 businessName: business?.name ?? branchName,
                 businessLocation: business?.location,
-                businessPhone: business?.phone,
+                ...receiptPrintPhoneOptions(business),
                 businessLogoUrl: business?.logoUrl,
                 copyType: 'customer',
                 currency,

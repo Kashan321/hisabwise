@@ -19,6 +19,10 @@ import {
 import { useMenu } from '@/lib/hooks/queries';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
 import { getItemDisplayPrice } from '@/lib/cart-line';
+import {
+  getMenuItemAvailabilityLabel,
+  isMenuItemEditorAvailable,
+} from '@/lib/menu-item-sellability';
 import { formatItemProfit } from '@/lib/menu-item-profit';
 import { useToast } from '@/lib/toast';
 import type { MenuItem } from '@/lib/api/types';
@@ -233,9 +237,8 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
     updateItem.mutate(
       { id: item.id, isAvailable: nextAvailable },
       {
-        onSuccess: () => {
-          const next = { ...item, isAvailable: nextAvailable };
-          if (editingItem?.id === item.id) setEditingItem(next);
+        onSuccess: (data) => {
+          if (editingItem?.id === item.id) setEditingItem(data.item);
           toast.success(nextAvailable ? 'Marked available' : 'Marked unavailable');
         },
         onError: (err) => toast.error(formatApiError(err)),
@@ -464,7 +467,9 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
                   type="button"
                   onClick={() => openEditItem(item)}
                   className={`group text-left bg-surface border rounded-xl overflow-hidden transition-all hover:shadow-[0px_4px_12px_rgba(0,0,0,0.06)] hover:border-outline-variant/50 ${
-                    item.isAvailable ? 'border-outline-variant/30' : 'opacity-75'
+                    isMenuItemEditorAvailable(item)
+                      ? 'border-outline-variant/30'
+                      : 'opacity-75'
                   }`}
                 >
                   <div className="h-32 bg-gradient-to-br from-primary-fixed via-surface-container to-secondary-fixed/20 flex items-center justify-center overflow-hidden relative">
@@ -540,10 +545,12 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
                     <div className="flex items-center justify-between pt-3 border-t border-outline-variant/10">
                       <span
                         className={`font-caption font-bold ${
-                          item.isAvailable ? 'text-primary' : 'text-on-surface-variant'
+                          isMenuItemEditorAvailable(item)
+                            ? 'text-primary'
+                            : 'text-on-surface-variant'
                         }`}
                       >
-                        {item.isAvailable ? 'Available' : 'Unavailable'}
+                        {getMenuItemAvailabilityLabel(item)}
                       </span>
                       <span className="font-caption text-on-surface-variant opacity-0 group-hover:opacity-100">
                         Edit →
@@ -823,14 +830,14 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
               </label>
               <button
                 type="button"
-                onClick={() => toggleAvailability(editingItem)}
+                onClick={() => toggleAvailability(editingItemLive ?? editingItem)}
                 className={`w-full h-11 px-4 rounded-lg border font-body-emphasis transition-colors ${
-                  editingItem.isAvailable
+                  isMenuItemEditorAvailable(editingItemLive ?? editingItem)
                     ? 'border-primary/30 bg-primary/5 text-primary'
                     : 'border-outline-variant/30 text-on-surface-variant'
                 }`}
               >
-                {editingItem.isAvailable ? 'Available' : 'Unavailable'}
+                {getMenuItemAvailabilityLabel(editingItemLive ?? editingItem)}
               </button>
             </div>
           )}

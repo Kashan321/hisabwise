@@ -104,4 +104,73 @@ describe('Menu module', () => {
     expect(updated.status).toBe(200);
     expect(updated.body.data.item.isAvailable).toBe(false);
   });
+
+  it('patches availability on variant item without changing price or variants', async () => {
+    const register = await registerOwner('menu-variant-toggle');
+    const token = register.body.data.accessToken;
+
+    const category = await request(app)
+      .post('/api/v1/menu/categories')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Karahi' });
+
+    const item = await request(app)
+      .post('/api/v1/menu/items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        categoryId: category.body.data.category.id,
+        name: 'Boneless Chicken Karahi',
+        price: '1100.00',
+      });
+
+    const itemId = item.body.data.item.id;
+
+    await request(app)
+      .post(`/api/v1/menu/items/${itemId}/variants`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Half', price: '1100.00' });
+
+    await request(app)
+      .post(`/api/v1/menu/items/${itemId}/variants`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Full', price: '2200.00' });
+
+    const off = await request(app)
+      .patch(`/api/v1/menu/items/${itemId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ isAvailable: false });
+
+    expect(off.status).toBe(200);
+    expect(off.body.data.item.isAvailable).toBe(false);
+    expect(off.body.data.item.price).toBe('1100.00');
+    expect(off.body.data.item.variants).toHaveLength(2);
+
+    const on = await request(app)
+      .patch(`/api/v1/menu/items/${itemId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ isAvailable: true });
+
+    expect(on.status).toBe(200);
+    expect(on.body.data.item.isAvailable).toBe(true);
+  });
+
+  it('rejects create without price', async () => {
+    const register = await registerOwner('menu-no-price');
+    const token = register.body.data.accessToken;
+
+    const category = await request(app)
+      .post('/api/v1/menu/categories')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Snacks' });
+
+    const item = await request(app)
+      .post('/api/v1/menu/items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        categoryId: category.body.data.category.id,
+        name: 'Mystery',
+      });
+
+    expect(item.status).toBe(400);
+  });
 });

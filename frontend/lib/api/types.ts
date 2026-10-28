@@ -31,6 +31,7 @@ export interface Business {
   city?: string | null;
   branchNumber?: string | null;
   phone?: string | null;
+  phoneSecondary?: string | null;
   logoUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;

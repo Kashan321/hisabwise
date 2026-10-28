@@ -55,11 +55,13 @@ import {
   resolveTaxRatePercent,
   resolveTaxRatePercentLabel,
 } from '@/lib/order-pricing';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { printOrderReceipt, previewOrderReceipt } from '@/lib/print-order-receipt';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
 import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import { useToast } from '@/lib/toast';
 import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
+import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { canAddItemsToOpenTab, posAddItemsHref } from '@/lib/open-tab-order';
 import { formatReportRangeLabel, getReportPresetRange } from '@/lib/report-dates';
 import type { Order } from '@/lib/api/types';
@@ -303,7 +305,7 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const { queuePrintBillPrompt, PrintBillPrompt } = usePrintBillPrompt({
     businessName: business?.name,
     businessLocation: business?.location,
-    businessPhone: business?.phone,
+    ...receiptPrintPhoneOptions(business),
     businessLogoUrl: business?.logoUrl,
     currency,
     getTableLabel: (order) =>
@@ -341,7 +343,9 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const recentActivity = orders.slice(0, 3);
   const showOrdersSkeleton = isLoading && !ordersData && !ordersError;
 
-  const menuItems = categories.flatMap((c) => c.items ?? []).filter((i) => i.isAvailable);
+  const menuItems = categories
+    .flatMap((c) => c.items ?? [])
+    .filter((i) => isMenuItemCustomerSellable(i));
   const cartSubtotal = menuItems.reduce(
     (sum, item) => sum + Number(item.price) * (cart[item.id] ?? 0),
     0,
@@ -445,7 +449,7 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
         tableLabel: tableLabel(order),
         businessName: business?.name,
         businessLocation: business?.location,
-        businessPhone: business?.phone,
+        ...receiptPrintPhoneOptions(business),
         businessLogoUrl: business?.logoUrl,
         copyType: 'customer',
         currency,
@@ -465,7 +469,7 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
         tableLabel: tableLabel(order),
         businessName: business?.name,
         businessLocation: business?.location,
-        businessPhone: business?.phone,
+        ...receiptPrintPhoneOptions(business),
         businessLogoUrl: business?.logoUrl,
         copyType: 'customer',
         currency,

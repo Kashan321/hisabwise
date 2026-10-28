@@ -17,6 +17,7 @@ import {
 } from '@/lib/hooks/queries';
 import { DEFAULT_RECEIPT_TEMPLATE, type ReceiptTemplate } from '@/lib/receipt/receipt-template';
 import { SAMPLE_RECEIPT_ORDER } from '@/lib/receipt/sample-order';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { renderOrderReceiptHtml } from '@/lib/print-order-receipt';
 import { useToast } from '@/lib/toast';
 
@@ -58,7 +59,10 @@ export default function PlatformReceiptsPage() {
       tableLabel: 'Table 5',
       businessName: business?.name ?? 'Sample Restaurant',
       businessLocation: business?.location ?? 'Model town st 4',
-      businessPhone: '03256955674',
+      ...receiptPrintPhoneOptions({
+        phone: '03256955674',
+        phoneSecondary: '0211234567',
+      }),
       businessLogoUrl: business?.logoUrl ?? null,
       copyType: 'customer',
       currency: 'PKR',

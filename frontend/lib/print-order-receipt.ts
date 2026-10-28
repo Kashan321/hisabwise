@@ -3,6 +3,7 @@ import { buildCode128Svg } from '@/lib/barcode-code128';
 import { DEFAULT_CURRENCY } from '@/lib/currencies';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { formatCurrency } from '@/lib/format-currency';
+import { formatRestaurantReceiptPhones } from '@/lib/business-phones';
 import { APP_NAME } from '@/lib/config';
 import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
 import {
@@ -25,6 +26,7 @@ export interface PrintReceiptOptions {
   businessName?: string;
   businessLocation?: string | null;
   businessPhone?: string | null;
+  businessPhoneSecondary?: string | null;
   businessLogoUrl?: string | null;
   copyType?: ReceiptCopyType;
   currency?: string;
@@ -601,10 +603,10 @@ function buildReceiptStyles(
       margin-bottom: 2px;
     }
     .receipt.customer-copy .copy-banner {
-      background: #000;
-      color: #fff;
-      border: none;
-      padding: 3px 10px;
+      background: #fff;
+      color: #000;
+      border: 2px solid #000;
+      padding: 2px 8px;
     }
     .receipt.customer-copy .customer-totals-box {
       border: 1px solid #000;
@@ -667,6 +669,13 @@ function buildReceiptStyles(
       }
       .item, .totals, .payment-section, .footer-compact {
         page-break-inside: avoid;
+      }
+      .copy-banner {
+        background: #fff !important;
+        color: #000 !important;
+        border: 2px solid #000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
     }
   `;
@@ -742,12 +751,16 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
     businessName = APP_NAME,
     businessLocation,
     businessPhone,
+    businessPhoneSecondary,
     businessLogoUrl,
     copyType = 'customer',
   } = options;
   const template = resolveReceiptTemplate(options);
   const addressLine = businessLocation?.trim();
-  const phoneLine = businessPhone?.trim();
+  const restaurantPhonesJoined = formatRestaurantReceiptPhones(
+    businessPhone,
+    businessPhoneSecondary,
+  );
   const currency = options.currency?.trim() || DEFAULT_CURRENCY;
   const copyLabel = copyTypeLabel(copyType, template);
   const widthMm = options.receiptWidthMm ?? template.receiptWidthMm ?? RECEIPT_WIDTH_MM;
@@ -782,7 +795,7 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
       ${!isKitchen && businessLogoUrl ? `<img src="${escapeHtml(businessLogoUrl)}" alt="" class="logo" />` : ''}
       <div class="store-name">${escapeHtml(businessName)}</div>
       ${!isKitchen && addressLine ? `<div class="store-address">${escapeHtml(addressLine)}</div>` : ''}
-      ${!isKitchen && phoneLine ? `<div class="store-phone">Tel: ${escapeHtml(phoneLine)}</div>` : ''}
+      ${!isKitchen && restaurantPhonesJoined ? `<div class="store-phone">Tel: ${escapeHtml(restaurantPhonesJoined)}</div>` : ''}
       <div class="copy-banner ${isKitchen ? 'kitchen' : ''}">${escapeHtml(copyLabel)}</div>
     </header>
 

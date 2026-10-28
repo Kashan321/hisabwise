@@ -16,6 +16,7 @@ import { usePosLiveOrders } from '@/lib/hooks/queries';
 import { useFormatMoney } from '@/lib/hooks/use-business-currency';
 import { formatOrderLabel, formatOrderShortLabel } from '@/lib/order-display';
 import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import { useToast } from '@/lib/toast';
 
@@ -125,7 +126,7 @@ export function PosLiveOrdersStripe({
         tableLabel: tableLabel(order) || '—',
         businessName: business?.name,
         businessLocation: business?.location,
-        businessPhone: business?.phone,
+        ...receiptPrintPhoneOptions(business),
         businessLogoUrl: business?.logoUrl,
         copyType: 'customer',
         currency,

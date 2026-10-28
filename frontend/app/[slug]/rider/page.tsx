@@ -14,6 +14,7 @@ import type { DeliveryStatus, Order } from '@/lib/api/types';
 import { useUpdateDeliveryStatus } from '@/lib/hooks/mutations';
 import { useBusiness, useRiderDashboard, useRiderPendingCash } from '@/lib/hooks/queries';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import { formatOrderLabel } from '@/lib/order-display';
 import {
@@ -44,7 +45,7 @@ export default function RiderDashboardPage({
   const { queuePrintBillPrompt, PrintBillPrompt } = usePrintBillPrompt({
     businessName: business?.name,
     businessLocation: business?.location,
-    businessPhone: business?.phone,
+    ...receiptPrintPhoneOptions(business),
     businessLogoUrl: business?.logoUrl,
     currency,
     getTableLabel: (order) => order.tableIdentifier ?? 'Delivery',

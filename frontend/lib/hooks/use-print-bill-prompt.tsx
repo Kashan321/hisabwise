@@ -23,6 +23,7 @@ export function usePrintBillPrompt(options: {
   businessName?: string;
   businessLocation?: string | null;
   businessPhone?: string | null;
+  businessPhoneSecondary?: string | null;
   businessLogoUrl?: string | null;
   currency?: string;
   getTableLabel?: (order: Order) => string;
@@ -68,6 +69,7 @@ export function usePrintBillPrompt(options: {
         businessName: options.businessName,
         businessLocation: options.businessLocation,
         businessPhone: options.businessPhone,
+        businessPhoneSecondary: options.businessPhoneSecondary,
         businessLogoUrl: options.businessLogoUrl,
         copyType: 'customer',
         currency: options.currency,

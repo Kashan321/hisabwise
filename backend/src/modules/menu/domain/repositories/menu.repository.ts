@@ -109,6 +109,10 @@ export interface MenuRepository {
     },
   ): Promise<MenuItemEntity>;
   countVariants(businessId: string, itemId: string): Promise<number>;
+  findItemById(
+    businessId: string,
+    itemId: string,
+  ): Promise<{ price: string; pricingType: 'FIXED' | 'BY_WEIGHT' } | null>;
   isSellByWeightItem(businessId: string, itemId: string): Promise<boolean>;
   deleteItem(businessId: string, itemId: string): Promise<void>;
 

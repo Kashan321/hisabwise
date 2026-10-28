@@ -1,4 +1,5 @@
 import type { MenuItem, ModifierGroup, InventoryAvailabilityMap } from '@/lib/api/types';
+import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { menuItemIsByWeight } from '@/lib/order-item-display';
 import {
   computeWeightLineBase,
@@ -206,7 +207,7 @@ export function isCartLineValid(
   line: CartLine,
   inventoryAvailability?: InventoryAvailabilityMap,
 ): boolean {
-  if (!item || !item.isAvailable || line.quantity <= 0) return false;
+  if (!item || !isMenuItemCustomerSellable(item) || line.quantity <= 0) return false;
 
   if (
     !isSellableInventoryOk(

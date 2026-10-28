@@ -7,6 +7,7 @@ import { Icon } from '@/components/ui';
 import { CashierTerminalPaymentModal } from '@/components/orders/cashier-terminal-payment-modal';
 import { CustomerSearchField } from '@/components/orders/customer-search-field';
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { APP_NAME } from '@/lib/config';
 import { formatApiError } from '@/lib/api/errors';
 import type { Customer, MenuItem, Order } from '@/lib/api/types';
@@ -39,6 +40,7 @@ import { useDebouncedValue } from '@/lib/hooks/use-debounced-value';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
 import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import { formatOrderLabel } from '@/lib/order-display';
+import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { canAddItemsToOpenTab } from '@/lib/open-tab-order';
 import {
   businessDeliveryCharge,
@@ -145,7 +147,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
   const { queuePrintBillPrompt, PrintBillPrompt } = usePrintBillPrompt({
     businessName: business?.name,
     businessLocation: business?.location,
-    businessPhone: business?.phone,
+    ...receiptPrintPhoneOptions(business),
     businessLogoUrl: business?.logoUrl,
     currency,
     getTableLabel: (order) =>
@@ -196,7 +198,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
     const map: Record<string, MenuItem> = {};
     for (const cat of categories) {
       for (const item of cat.items ?? []) {
-        if (item.isAvailable) map[item.id] = item;
+        if (isMenuItemCustomerSellable(item)) map[item.id] = item;
       }
     }
     return map;
@@ -281,7 +283,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
       if (!cat.isActive) continue;
       if (activeCategoryId !== ALL_CATEGORY_ID && cat.id !== activeCategoryId) continue;
       for (const item of cat.items ?? []) {
-        if (!item.isAvailable) continue;
+        if (!isMenuItemCustomerSellable(item)) continue;
         if (q && !item.name.toLowerCase().includes(q)) continue;
         items.push(item);
       }

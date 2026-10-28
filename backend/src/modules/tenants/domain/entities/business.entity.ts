@@ -6,6 +6,7 @@ export interface BusinessEntity {
   city: string | null;
   branchNumber: string | null;
   phone: string | null;
+  phoneSecondary: string | null;
   logoUrl: string | null;
   primaryColor: string | null;
   secondaryColor: string | null;
@@ -31,6 +32,7 @@ export interface UpdateBusinessInput {
   city?: string | null;
   branchNumber?: string | null;
   phone?: string | null;
+  phoneSecondary?: string | null;
   logoUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;

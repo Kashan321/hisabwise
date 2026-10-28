@@ -122,6 +122,7 @@ model Business {
   city               String?
   branchNumber       String?            @map("branch_number")
   phone                    String?
+  phoneSecondary           String?            @map("phone_secondary")
   receiptTemplateId        String?            @map("receipt_template_id") @db.Uuid
   receiptTemplateOverride  Json?              @map("receipt_template_override")
   logoUrl                  String?            @map("logo_url")

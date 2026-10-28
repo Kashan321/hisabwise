@@ -572,7 +572,10 @@ export function usePublicOrder(slug: string, orderId: string, poll = false) {
     queryFn: () =>
       apiFetch<{
         order: Order;
-        business?: Pick<Business, 'name' | 'logoUrl' | 'currency' | 'location' | 'phone'>;
+        business?: Pick<
+          Business,
+          'name' | 'logoUrl' | 'currency' | 'location' | 'phone' | 'phoneSecondary'
+        >;
         receiptTemplate?: import('@/lib/api/types').ReceiptTemplate;
       }>(`/public/${slug}/orders/${orderId}`, { auth: 'none' }),
     enabled: !!slug && !!orderId,

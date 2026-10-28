@@ -635,6 +635,7 @@ export function useUpdateBusiness() {
       city?: string | null;
       branchNumber?: string | null;
       phone?: string | null;
+      phoneSecondary?: string | null;
       logoUrl?: string | null;
       primaryColor?: string | null;
       secondaryColor?: string | null;
@@ -664,8 +665,19 @@ export function useUpdateBusiness() {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(['business', 'me'], ctx.prev);
     },
-    onSuccess: (data) => {
-      qc.setQueryData(['business', 'me'], data.business);
+    onSuccess: (data, variables) => {
+      const fromApi = data?.business;
+      qc.setQueryData<Business>(['business', 'me'], (old) => {
+        if (!fromApi && !old) return old;
+        const merged = { ...(old ?? {}), ...(fromApi ?? {}) } as Business;
+        if (variables.phoneSecondary !== undefined) {
+          merged.phoneSecondary = variables.phoneSecondary;
+        }
+        if (variables.phone !== undefined) {
+          merged.phone = variables.phone;
+        }
+        return merged.id ? merged : fromApi ?? old;
+      });
       reconcileInBackground(qc, ['business']);
     },
   });

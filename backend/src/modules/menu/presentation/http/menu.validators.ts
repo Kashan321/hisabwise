@@ -71,6 +71,16 @@ export const createMenuItemSchema = z
     }
   });
 
+const updateWeightConfigFields = {
+  pricingType: z.enum(['fixed', 'by_weight']).optional(),
+  pricePerUnit: priceSchema.optional(),
+  pricingUnitG: pricingUnitGSchema.optional(),
+  minWeightG: z.number().int().min(1).max(MAX_WEIGHT_G).optional().nullable(),
+  weightStepG: z.number().int().min(1).max(5000).optional().nullable(),
+  quickWeightsG: z.array(z.number().int().min(1).max(MAX_WEIGHT_G)).max(12).optional().nullable(),
+  priceRounding: z.union([z.literal(1), z.literal(5), z.literal(10)]).optional().nullable(),
+};
+
 export const updateMenuItemSchema = z
   .object({
     categoryId: z.string().uuid().optional(),
@@ -81,7 +91,7 @@ export const updateMenuItemSchema = z
     imageUrl: nullableStorageReferenceSchema.optional(),
     isAvailable: z.boolean().optional(),
     displayOrder: z.number().int().min(0).optional(),
-    ...weightConfigFields,
+    ...updateWeightConfigFields,
   })
   .superRefine((data, ctx) => {
     if (data.pricingType === 'by_weight' && data.pricePerUnit == null && data.price == null) {
@@ -89,6 +99,13 @@ export const updateMenuItemSchema = z
         code: z.ZodIssueCode.custom,
         message: 'Price per unit is required when switching to sell by weight',
         path: ['pricePerUnit'],
+      });
+    }
+    if (data.price != null && Number(data.price) < 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Price must be greater than zero',
+        path: ['price'],
       });
     }
   });

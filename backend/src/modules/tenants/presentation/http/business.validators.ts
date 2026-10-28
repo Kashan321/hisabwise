@@ -8,6 +8,7 @@ export const updateBusinessSchema = z.object({
   city: z.string().trim().max(100).nullable().optional(),
   branchNumber: z.string().trim().max(50).nullable().optional(),
   phone: z.string().trim().max(50).nullable().optional(),
+  phoneSecondary: z.string().trim().max(50).nullable().optional(),
   logoUrl: nullableStorageReferenceSchema.optional(),
   currency: z.enum(SUPPORTED_CURRENCIES).nullable().optional(),
   allowNegativeInventory: z.boolean().optional(),

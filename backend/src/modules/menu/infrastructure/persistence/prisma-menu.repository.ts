@@ -346,6 +346,21 @@ export class PrismaMenuRepository implements MenuRepository {
     });
   }
 
+  async findItemById(
+    businessId: string,
+    itemId: string,
+  ): Promise<{ price: string; pricingType: 'FIXED' | 'BY_WEIGHT' } | null> {
+    const item = await prisma.menuItem.findFirst({
+      where: { id: itemId, businessId },
+      select: { price: true, pricingType: true },
+    });
+    if (!item) return null;
+    return {
+      price: item.price.toString(),
+      pricingType: item.pricingType,
+    };
+  }
+
   async isSellByWeightItem(businessId: string, itemId: string): Promise<boolean> {
     const item = await prisma.menuItem.findFirst({
       where: { id: itemId, businessId },

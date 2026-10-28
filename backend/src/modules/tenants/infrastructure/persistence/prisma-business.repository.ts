@@ -11,6 +11,7 @@ function mapBusiness(business: {
   city: string | null;
   branchNumber: string | null;
   phone: string | null;
+  phoneSecondary: string | null;
   logoUrl: string | null;
   primaryColor: string | null;
   secondaryColor: string | null;
@@ -37,6 +38,7 @@ function mapBusiness(business: {
     city: business.city,
     branchNumber: business.branchNumber,
     phone: business.phone,
+    phoneSecondary: business.phoneSecondary,
     logoUrl: business.logoUrl,
     primaryColor: business.primaryColor,
     secondaryColor: business.secondaryColor,

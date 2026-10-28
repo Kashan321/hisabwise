@@ -14,6 +14,7 @@ import {
   isCartLineValid,
   isSellableInventoryOk,
 } from '@/lib/cart-line';
+import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { menuItemIsByWeight } from '@/lib/order-item-display';
 import { loadCart, loadTableContext, saveCart, upsertCartLine } from '@/lib/cart-storage';
 import { APP_NAME } from '@/lib/config';
@@ -257,7 +258,7 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
           const items =
             cat.items?.filter(
               (i) =>
-                i.isAvailable &&
+                isMenuItemCustomerSellable(i) &&
                 isSellableInventoryOk(inventoryAvailability, i.id, null, []),
             ) ?? [];
           if (!items.length) return null;

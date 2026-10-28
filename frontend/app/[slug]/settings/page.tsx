@@ -12,6 +12,11 @@ import { suggestCurrencyFromIp } from '@/lib/geo/detect-currency';
 import { formatApiError } from '@/lib/api/errors';
 import { useUpdateBusiness } from '@/lib/hooks/mutations';
 import { useAutoDetectCurrency } from '@/lib/hooks/use-auto-detect-currency';
+import {
+  businessPhonesDuplicate,
+  formatBusinessPhonesDisplay,
+  formatRestaurantReceiptPhones,
+} from '@/lib/business-phones';
 import { useBusiness, useSubscription } from '@/lib/hooks/queries';
 import {
   formatDaysRemaining,
@@ -39,6 +44,7 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
   const [city, setCity] = useState('');
   const [branchNumber, setBranchNumber] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneSecondary, setPhoneSecondary] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [currency, setCurrency] = useState('');
   const [ticketPrefix, setTicketPrefix] = useState('');
@@ -69,6 +75,7 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
     setCity(business.city ?? '');
     setBranchNumber(business.branchNumber ?? '');
     setPhone(business.phone ?? '');
+    setPhoneSecondary(business.phoneSecondary ?? '');
     setLogoUrl(business.logoUrl ?? null);
     setTicketPrefix(resolveTicketPrefix(slug, business.orderTicketPrefix));
     setBusinessDayStartTime(business.businessDayStartTime ?? '05:00');
@@ -126,13 +133,22 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    const primary = phone.trim();
+    const secondary = phoneSecondary.trim();
+    if (secondary && primary && businessPhonesDuplicate(primary, secondary)) {
+      const msg = 'Secondary phone must be a different number from primary.';
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
     try {
       await updateBusiness.mutateAsync({
         name: name.trim(),
         location: location.trim() || null,
         city: city.trim() || null,
         branchNumber: branchNumber.trim() || null,
-        phone: phone.trim() || null,
+        phone: primary || null,
+        phoneSecondary: secondary || null,
         logoUrl,
       });
       toast.success('Business profile updated');
@@ -240,7 +256,21 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
                 <dt className="font-caption text-on-surface-variant uppercase tracking-wider mb-1">
                   Phone
                 </dt>
-                <dd className="font-body-base">{business?.phone ?? 'Not set'}</dd>
+                <dd className="font-body-base space-y-1">
+                  <div>
+                    {formatBusinessPhonesDisplay(business?.phone, business?.phoneSecondary)}
+                  </div>
+                  {businessPhonesDuplicate(business?.phone, business?.phoneSecondary) ? (
+                    <p className="font-caption text-error">
+                      Primary and secondary are the same — receipts show one number only.
+                    </p>
+                  ) : formatRestaurantReceiptPhones(business?.phone, business?.phoneSecondary) ? (
+                    <p className="font-caption text-on-surface-variant">
+                      Receipt header: Tel:{' '}
+                      {formatRestaurantReceiptPhones(business?.phone, business?.phoneSecondary)}
+                    </p>
+                  ) : null}
+                </dd>
               </div>
             </dl>
           </div>
@@ -516,6 +546,7 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
     setCity(business.city ?? '');
     setBranchNumber(business.branchNumber ?? '');
     setPhone(business.phone ?? '');
+    setPhoneSecondary(business.phoneSecondary ?? '');
             setLogoUrl(business.logoUrl ?? null);
           }
         }}
@@ -563,13 +594,31 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
             onChange={(e) => setLocation(e.target.value)}
             placeholder="Street, area, landmark"
           />
-          <Input
-            label="Phone"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="0321 1234567"
-            hint="Shown on printed customer receipts."
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Phone (primary)"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="0321 1234567"
+            />
+            <Input
+              label="Phone (secondary)"
+              value={phoneSecondary}
+              onChange={(e) => setPhoneSecondary(e.target.value)}
+              placeholder="021 1234567"
+            />
+          </div>
+          <p className="font-caption text-on-surface-variant -mt-2">
+            Both numbers print at the top of the receipt as Tel: primary | secondary. Use two
+            different restaurant lines (not the POS support number in receipt settings).
+          </p>
+          {phone.trim() && phoneSecondary.trim() && businessPhonesDuplicate(phone, phoneSecondary) ? (
+            <p className="font-caption text-error">Enter a different number for secondary.</p>
+          ) : phone.trim() && phoneSecondary.trim() ? (
+            <p className="font-caption text-on-surface-variant">
+              Receipt preview: Tel: {formatRestaurantReceiptPhones(phone, phoneSecondary)}
+            </p>
+          ) : null}
           {error && <p className="font-caption text-error">{error}</p>}
         </form>
       </Modal>

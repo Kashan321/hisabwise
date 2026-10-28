@@ -26,6 +26,7 @@ import { ItemCustomizationModal } from '@/components/orders/item-customization-m
 import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import { formatApiError } from '@/lib/api/errors';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
+import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import {
   type CartLine,
@@ -40,6 +41,7 @@ import {
   isSellableInventoryOk,
   lineUnitPrice,
 } from '@/lib/cart-line';
+import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { formatOrderItemWeightLine, menuItemIsByWeight } from '@/lib/order-item-display';
 import {
   useAddOrderItems,
@@ -867,7 +869,7 @@ export function PosOrderScreen({
   const { queuePrintBillPrompt, PrintBillPrompt } = usePrintBillPrompt({
     businessName: business?.name,
     businessLocation: business?.location,
-    businessPhone: business?.phone,
+    ...receiptPrintPhoneOptions(business),
     businessLogoUrl: business?.logoUrl,
     currency,
     getTableLabel: (order) =>
@@ -1911,7 +1913,7 @@ export function PosOrderScreen({
         tableLabel,
         businessName: business?.name,
         businessLocation: business?.location,
-        businessPhone: business?.phone,
+        ...receiptPrintPhoneOptions(business),
         businessLogoUrl: business?.logoUrl,
         copyType: 'customer',
         currency,
@@ -2930,7 +2932,7 @@ function availableItemsFromCategories(
     (cat.items ?? [])
       .filter(
         (i) =>
-          i.isAvailable &&
+          isMenuItemCustomerSellable(i) &&
           isSellableInventoryOk(inventoryAvailability, i.id, null, []),
       )
       .map((item) => ({ item, categoryId: cat.id, categoryName: cat.name })),
