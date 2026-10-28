@@ -1036,6 +1036,7 @@ export function useCreatePublicOrder(slug: string) {
         menuItemId: string;
         quantity: number;
         variantId?: string;
+        weightG?: number;
         modifierOptionIds?: string[];
       }[];
       notes?: string;

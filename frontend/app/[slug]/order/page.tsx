@@ -4,14 +4,17 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui';
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
+import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import type { CartLine, CartLineSelection } from '@/lib/cart-line';
 import {
+  cartLineTotal,
   getItemDisplayPrice,
   itemNeedsCustomization,
+  itemNeedsWeightEntry,
   isCartLineValid,
   isSellableInventoryOk,
-  lineUnitPrice,
 } from '@/lib/cart-line';
+import { menuItemIsByWeight } from '@/lib/order-item-display';
 import { loadCart, loadTableContext, saveCart, upsertCartLine } from '@/lib/cart-storage';
 import { APP_NAME } from '@/lib/config';
 import { usePublicMenu } from '@/lib/hooks/queries';
@@ -24,10 +27,19 @@ function isFeaturedItem(item: MenuItem) {
 }
 
 function itemPriceLabel(item: MenuItem, formatMoney: (amount: number | string) => string) {
+  if (menuItemIsByWeight(item)) {
+    return `${formatMoney(getItemDisplayPrice(item))}/kg`;
+  }
   if ((item.variants?.length ?? 0) > 0) {
     return `From ${formatMoney(getItemDisplayPrice(item))}`;
   }
   return formatMoney(item.price);
+}
+
+function addItemLabel(item: MenuItem) {
+  if (itemNeedsWeightEntry(item)) return 'Choose weight';
+  if (itemNeedsCustomization(item)) return 'Customize';
+  return 'Add';
 }
 
 export default function CustomerMenuPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -36,6 +48,8 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customizationItem, setCustomizationItem] = useState<MenuItem | null>(null);
+  const [weightItem, setWeightItem] = useState<MenuItem | null>(null);
+  const [pendingWeightG, setPendingWeightG] = useState<number | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [cartBarVisible, setCartBarVisible] = useState(true);
   const [lastScroll, setLastScroll] = useState(0);
@@ -76,7 +90,7 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
   const cartTotal = cart.reduce((sum, line) => {
     const item = itemById[line.menuItemId];
     if (!item) return sum;
-    return sum + lineUnitPrice(item, line.modifierOptionIds, line.variantId) * line.quantity;
+    return sum + cartLineTotal(item, line);
   }, 0);
 
   useEffect(() => {
@@ -102,6 +116,11 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
   }
 
   function handleAddItem(item: MenuItem) {
+    if (itemNeedsWeightEntry(item)) {
+      setPendingWeightG(null);
+      setWeightItem(item);
+      return;
+    }
     if (itemNeedsCustomization(item)) {
       setCustomizationItem(item);
       return;
@@ -110,16 +129,49 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
     showAddedToast();
   }
 
-  function handleCustomizationConfirm(selection: CartLineSelection) {
-    if (!customizationItem) return;
+  function commitWeightedLine(item: MenuItem, weightG: number, selection: CartLineSelection) {
     setCart(
       upsertCartLine(slug, {
-        menuItemId: customizationItem.id,
-        variantId: selection.variantId,
+        menuItemId: item.id,
+        weightG,
+        variantId: null,
         modifierOptionIds: selection.modifierOptionIds,
         quantity: 1,
       }),
     );
+    showAddedToast();
+  }
+
+  function handleWeightConfirm(weightG: number) {
+    if (!weightItem) return;
+    if (itemNeedsCustomization(weightItem)) {
+      setPendingWeightG(weightG);
+      setCustomizationItem(weightItem);
+      setWeightItem(null);
+      return;
+    }
+    commitWeightedLine(weightItem, weightG, { modifierOptionIds: [] });
+    setWeightItem(null);
+  }
+
+  function handleCustomizationConfirm(selection: CartLineSelection) {
+    if (!customizationItem) return;
+    const weightG = selection.weightG ?? pendingWeightG ?? undefined;
+    if (menuItemIsByWeight(customizationItem) && weightG == null) {
+      setWeightItem(customizationItem);
+      return;
+    }
+    setCart(
+      upsertCartLine(slug, {
+        menuItemId: customizationItem.id,
+        variantId: menuItemIsByWeight(customizationItem) ? null : selection.variantId,
+        weightG: menuItemIsByWeight(customizationItem) ? weightG : undefined,
+        modifierOptionIds: selection.modifierOptionIds,
+        quantity: 1,
+      }),
+    );
+    setPendingWeightG(null);
+    setCustomizationItem(null);
     showAddedToast();
   }
 
@@ -128,11 +180,32 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
       className="bg-surface font-body-base text-on-surface antialiased min-h-screen pb-28 selection:bg-secondary-container"
       style={themeToStyle(business)}
     >
+      {weightItem && (
+        <WeightEntryModal
+          item={weightItem}
+          open={!!weightItem}
+          quickWeightsOnly
+          formatMoney={formatMoney}
+          themeStyle={themeToStyle(business)}
+          onClose={() => setWeightItem(null)}
+          onConfirm={handleWeightConfirm}
+          confirmLabel="Add to order"
+        />
+      )}
+
       {customizationItem && (
         <ItemCustomizationModal
           item={customizationItem}
           open={!!customizationItem}
-          onClose={() => setCustomizationItem(null)}
+          onClose={() => {
+            setCustomizationItem(null);
+            setPendingWeightG(null);
+          }}
+          initialSelection={
+            pendingWeightG != null
+              ? { weightG: pendingWeightG, modifierOptionIds: [] }
+              : undefined
+          }
           onConfirm={handleCustomizationConfirm}
           confirmLabel="Add to order"
           inventoryAvailability={inventoryAvailability}
@@ -244,7 +317,7 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
                               className="mt-4 w-full tap-target bg-primary text-on-primary rounded-lg font-body-emphasis hover:bg-secondary-container hover:text-on-secondary-container transition-all flex items-center justify-center gap-2 py-3"
                             >
                               <Icon name="add" className="text-sm" />
-                              {itemNeedsCustomization(item) ? 'Customize' : 'Add to Order'}
+                              {addItemLabel(item) === 'Add' ? 'Add to Order' : addItemLabel(item)}
                             </button>
                           </>
                         ) : (
@@ -266,7 +339,7 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
                                 onClick={() => handleAddItem(item)}
                                 className="tap-target flex items-center justify-center bg-primary-container text-on-primary-container rounded-full px-4 py-1.5 text-sm font-medium hover:bg-primary hover:text-on-primary transition-colors"
                               >
-                                {itemNeedsCustomization(item) ? 'Customize' : 'Add'}
+                                {addItemLabel(item)}
                               </button>
                             </div>
                           </>

@@ -12,6 +12,7 @@ import { printOrderReceipt } from '@/lib/print-order-receipt';
 import { APP_NAME } from '@/lib/config';
 import { useToast } from '@/lib/toast';
 import { formatOrderLabel } from '@/lib/order-display';
+import { formatOrderItemWeightLine } from '@/lib/order-item-display';
 
 function ConfirmContent({ slug }: { slug: string }) {
   const searchParams = useSearchParams();
@@ -104,12 +105,19 @@ function ConfirmContent({ slug }: { slug: string }) {
             Order Details
           </h3>
           <ul className="space-y-3 mb-6">
-            {order.items?.map((item) => (
+            {order.items?.map((item) => {
+              const weightLine = formatOrderItemWeightLine(item);
+              return (
               <li key={item.id} className="flex justify-between gap-4 font-body-base">
                 <div className="min-w-0">
                   <span className="block">
                     {item.quantity}x {item.menuItemName}
                   </span>
+                  {weightLine && (
+                    <span className="block font-caption text-on-surface-variant">
+                      {weightLine}
+                    </span>
+                  )}
                   {item.variantName && (
                     <span className="block font-caption text-on-surface-variant">
                       {item.variantName}
@@ -126,7 +134,8 @@ function ConfirmContent({ slug }: { slug: string }) {
                 </div>
                 <span className="font-mono shrink-0">{formatMoney(item.lineTotal)}</span>
               </li>
-            ))}
+            );
+            })}
           </ul>
           <div className="flex justify-between font-title-lg text-primary pt-4 border-t border-dashed border-outline-variant/40">
             <span>Total</span>

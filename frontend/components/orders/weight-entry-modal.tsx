@@ -30,6 +30,8 @@ export function WeightEntryModal({
   initialWeightG,
   confirmLabel = 'Add to order',
   themeStyle,
+  quickWeightsOnly = false,
+  formatMoney: formatMoneyProp,
 }: {
   item: MenuItem;
   open: boolean;
@@ -38,23 +40,31 @@ export function WeightEntryModal({
   initialWeightG?: number | null;
   confirmLabel?: string;
   themeStyle?: CSSProperties;
+  /** QR ordering: pick from preset weights only (no manual entry). */
+  quickWeightsOnly?: boolean;
+  formatMoney?: (amount: number | string | null | undefined) => string;
 }) {
-  const formatMoney = useFormatMoney();
+  const formatMoneyHook = useFormatMoney();
+  const formatMoney = formatMoneyProp ?? formatMoneyHook;
   const [unitMode, setUnitMode] = useState<UnitMode>('g');
   const [input, setInput] = useState('');
+  const [selectedQuickG, setSelectedQuickG] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   const pricePerKg = Number(item.pricePerKg ?? item.price);
   const rounding = (item.priceRounding ?? null) as 1 | 5 | 10 | null;
-  const quickButtons =
-    item.quickWeightsG?.length
-      ? item.quickWeightsG
-      : [250, 500, 750, 1000];
+  const quickButtons = useMemo(() => {
+    const base =
+      item.quickWeightsG?.length ? item.quickWeightsG : [250, 500, 750, 1000];
+    const min = item.minWeightG ?? 0;
+    return base.filter((g) => g >= min);
+  }, [item.quickWeightsG, item.minWeightG]);
 
   useEffect(() => {
     if (!open) return;
     setError('');
     setUnitMode('g');
+    setSelectedQuickG(initialWeightG ?? null);
     if (initialWeightG != null) {
       setInput(String(initialWeightG));
     } else {
@@ -62,7 +72,10 @@ export function WeightEntryModal({
     }
   }, [open, item.id, initialWeightG]);
 
-  const weightG = useMemo(() => parseInputToGrams(input, unitMode), [input, unitMode]);
+  const weightG = useMemo(() => {
+    if (quickWeightsOnly) return selectedQuickG;
+    return parseInputToGrams(input, unitMode);
+  }, [quickWeightsOnly, selectedQuickG, input, unitMode]);
 
   const liveBase =
     weightG != null && menuItemIsByWeight(item)
@@ -70,7 +83,7 @@ export function WeightEntryModal({
       : null;
 
   function validate(): number | null {
-    const grams = parseInputToGrams(input, unitMode);
+    const grams = quickWeightsOnly ? selectedQuickG : parseInputToGrams(input, unitMode);
     const result = validateWeightInput(grams, { minWeightG: item.minWeightG });
     if (!result.ok) {
       setError(result.message);
@@ -90,6 +103,7 @@ export function WeightEntryModal({
   function applyQuick(g: number) {
     setUnitMode('g');
     setInput(String(g));
+    setSelectedQuickG(g);
     setError('');
   }
 
@@ -101,7 +115,11 @@ export function WeightEntryModal({
       onClose={onClose}
       themeStyle={themeStyle}
       title={item.name}
-      description={`Sell by weight · ${formatMoney(pricePerKg)} per kg`}
+      description={
+        quickWeightsOnly
+          ? `Choose a portion · ${formatMoney(pricePerKg)} per kg`
+          : `Sell by weight · ${formatMoney(pricePerKg)} per kg`
+      }
       footer={
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-left">
@@ -113,7 +131,9 @@ export function WeightEntryModal({
                 </p>
               </>
             ) : (
-              <p className="text-sm text-on-surface-variant">Enter weight to see price</p>
+              <p className="text-sm text-on-surface-variant">
+                {quickWeightsOnly ? 'Tap a weight below' : 'Enter weight to see price'}
+              </p>
             )}
           </div>
           <div className="flex gap-2 justify-end">
@@ -128,38 +148,51 @@ export function WeightEntryModal({
       }
     >
       <div className="space-y-4">
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className={`flex-1 rounded-xl border py-3 text-lg font-bold ${
-              unitMode === 'g' ? 'border-primary bg-primary-container/30' : 'border-outline-variant/30'
-            }`}
-            onClick={() => setUnitMode('g')}
-          >
-            Grams (g)
-          </button>
-          <button
-            type="button"
-            className={`flex-1 rounded-xl border py-3 text-lg font-bold ${
-              unitMode === 'kg' ? 'border-primary bg-primary-container/30' : 'border-outline-variant/30'
-            }`}
-            onClick={() => setUnitMode('kg')}
-          >
-            Kilograms (kg)
-          </button>
-        </div>
+        {quickWeightsOnly ? (
+          <p className="text-sm text-on-surface-variant">
+            Need a different amount? Ask staff at the counter.
+          </p>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={`flex-1 rounded-xl border py-3 text-lg font-bold ${
+                  unitMode === 'g'
+                    ? 'border-primary bg-primary-container/30'
+                    : 'border-outline-variant/30'
+                }`}
+                onClick={() => setUnitMode('g')}
+              >
+                Grams (g)
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-xl border py-3 text-lg font-bold ${
+                  unitMode === 'kg'
+                    ? 'border-primary bg-primary-container/30'
+                    : 'border-outline-variant/30'
+                }`}
+                onClick={() => setUnitMode('kg')}
+              >
+                Kilograms (kg)
+              </button>
+            </div>
 
-        <Input
-          inputMode="decimal"
-          className="!text-3xl !py-4 !text-center font-mono font-bold"
-          placeholder={unitMode === 'g' ? '350' : '1.25'}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setError('');
-          }}
-          aria-label="Weight"
-        />
+            <Input
+              inputMode="decimal"
+              className="!text-3xl !py-4 !text-center font-mono font-bold"
+              placeholder={unitMode === 'g' ? '350' : '1.25'}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                setSelectedQuickG(null);
+                setError('');
+              }}
+              aria-label="Weight"
+            />
+          </>
+        )}
         {error ? <p className="text-sm text-error font-medium">{error}</p> : null}
 
         <div className="flex flex-wrap gap-2">
@@ -168,7 +201,11 @@ export function WeightEntryModal({
               key={g}
               type="button"
               onClick={() => applyQuick(g)}
-              className="rounded-xl border border-outline-variant/25 bg-surface-container-low px-4 py-3 text-base font-bold"
+              className={`rounded-xl border px-4 py-3 text-base font-bold min-w-[5.5rem] ${
+                selectedQuickG === g || (!quickWeightsOnly && input === String(g))
+                  ? 'border-primary bg-primary-container/40 text-primary'
+                  : 'border-outline-variant/25 bg-surface-container-low'
+              }`}
             >
               {formatWeightDisplay(g)}
             </button>

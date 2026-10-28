@@ -54,13 +54,14 @@ export function clearCart(slug: string) {
   sessionStorage.removeItem(cartKey(slug));
 }
 
+function cartEntryKey(line: CartLine) {
+  return cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId, line.weightG);
+}
+
 export function upsertCartLine(slug: string, line: CartLine, delta = 1): CartLine[] {
   const cart = loadCart(slug);
-  const key = cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId);
-  const existingIndex = cart.findIndex(
-    (entry) =>
-      cartLineKey(entry.menuItemId, entry.modifierOptionIds, entry.variantId) === key,
-  );
+  const key = cartEntryKey(line);
+  const existingIndex = cart.findIndex((entry) => cartEntryKey(entry) === key);
 
   if (existingIndex === -1) {
     const next = delta > 0 ? [...cart, { ...line, quantity: delta }] : cart;
@@ -88,8 +89,7 @@ export function updateCartLineQuantity(
   const current = cart ?? loadCart(slug);
   const next = current
     .map((line) => {
-      const key = cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId);
-      if (key !== lineKey) return line;
+      if (cartEntryKey(line) !== lineKey) return line;
       return { ...line, quantity: line.quantity + delta };
     })
     .filter((line) => line.quantity > 0);
@@ -104,15 +104,9 @@ export function replaceCartLine(
   cart?: CartLine[],
 ): CartLine[] {
   const current = cart ?? loadCart(slug);
-  const withoutOld = current.filter((entry) => {
-    const key = cartLineKey(entry.menuItemId, entry.modifierOptionIds, entry.variantId);
-    return key !== oldLineKey;
-  });
-  const newKey = cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId);
-  const existingIndex = withoutOld.findIndex(
-    (entry) =>
-      cartLineKey(entry.menuItemId, entry.modifierOptionIds, entry.variantId) === newKey,
-  );
+  const withoutOld = current.filter((entry) => cartEntryKey(entry) !== oldLineKey);
+  const newKey = cartEntryKey(line);
+  const existingIndex = withoutOld.findIndex((entry) => cartEntryKey(entry) === newKey);
 
   let next: CartLine[];
   if (existingIndex === -1) {

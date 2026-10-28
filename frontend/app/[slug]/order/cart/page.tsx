@@ -4,14 +4,17 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import { Icon, Spinner } from '@/components/ui';
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
+import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import type { CartLine, CartLineSelection } from '@/lib/cart-line';
 import {
   cartLineKey,
+  cartLineTotal,
   formatCartLineSummary,
   itemNeedsCustomization,
+  itemNeedsWeightEntry,
   isCartLineValid,
-  lineUnitPrice,
 } from '@/lib/cart-line';
+import { menuItemIsByWeight } from '@/lib/order-item-display';
 import {
   clearCart,
   loadCart,
@@ -37,6 +40,8 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
   const [cart, setCart] = useState<CartLine[]>([]);
   const [tableCtx, setTableCtx] = useState(loadTableContext(slug));
   const [customizationItem, setCustomizationItem] = useState<MenuItem | null>(null);
+  const [weightItem, setWeightItem] = useState<MenuItem | null>(null);
+  const [pendingWeightG, setPendingWeightG] = useState<number | null>(null);
   const [editingLineKey, setEditingLineKey] = useState<string | null>(null);
   const [initialSelection, setInitialSelection] = useState<CartLineSelection | undefined>();
 
@@ -59,13 +64,18 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
         .map((line) => {
           const item = itemById[line.menuItemId];
           if (!item) return null;
-          const lineKey = cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId);
-          const unitPrice = lineUnitPrice(item, line.modifierOptionIds, line.variantId);
+          const lineKey = cartLineKey(
+            line.menuItemId,
+            line.modifierOptionIds,
+            line.variantId,
+            line.weightG,
+          );
+          const lineTotal = cartLineTotal(item, line);
           return {
             lineKey,
             line,
             item,
-            unitPrice,
+            lineTotal,
             summaryLines: formatCartLineSummary(item, line),
           };
         })
@@ -73,7 +83,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
     [cart, itemById],
   );
 
-  const subtotal = lines.reduce((sum, entry) => sum + entry.unitPrice * entry.line.quantity, 0);
+  const subtotal = lines.reduce((sum, entry) => sum + entry.lineTotal, 0);
   const taxPercent = businessTaxRatePercent(data?.business);
   const tax = subtotal * (taxPercent / 100);
   const total = subtotal + tax;
@@ -86,6 +96,11 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
 
   function handleEdit(lineKey: string, line: CartLine, item: MenuItem) {
     setEditingLineKey(lineKey);
+    if (menuItemIsByWeight(item)) {
+      setWeightItem(item);
+      setInitialSelection(undefined);
+      return;
+    }
     setInitialSelection({
       variantId: line.variantId,
       modifierOptionIds: line.modifierOptionIds,
@@ -93,20 +108,72 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
     setCustomizationItem(item);
   }
 
+  function handleWeightConfirm(weightG: number) {
+    if (!weightItem || !editingLineKey) return;
+    const line = cart.find(
+      (entry) =>
+        cartLineKey(
+          entry.menuItemId,
+          entry.modifierOptionIds,
+          entry.variantId,
+          entry.weightG,
+        ) === editingLineKey,
+    );
+    if (!line) return;
+    if (itemNeedsCustomization(weightItem)) {
+      setPendingWeightG(weightG);
+      setInitialSelection({
+        weightG,
+        variantId: null,
+        modifierOptionIds: line.modifierOptionIds,
+      });
+      setCustomizationItem(weightItem);
+      setWeightItem(null);
+      return;
+    }
+    setCart(
+      replaceCartLine(
+        slug,
+        editingLineKey,
+        {
+          menuItemId: weightItem.id,
+          weightG,
+          variantId: null,
+          modifierOptionIds: line.modifierOptionIds,
+          quantity: line.quantity,
+        },
+        cart,
+      ),
+    );
+    setEditingLineKey(null);
+    setWeightItem(null);
+  }
+
   function handleCustomizationConfirm(selection: CartLineSelection) {
     if (!customizationItem || !editingLineKey) return;
     const line = cart.find(
       (entry) =>
-        cartLineKey(entry.menuItemId, entry.modifierOptionIds, entry.variantId) === editingLineKey,
+        cartLineKey(
+          entry.menuItemId,
+          entry.modifierOptionIds,
+          entry.variantId,
+          entry.weightG,
+        ) === editingLineKey,
     );
     if (!line) return;
+    const weightG = selection.weightG ?? pendingWeightG ?? line.weightG;
+    if (menuItemIsByWeight(customizationItem) && weightG == null) {
+      setWeightItem(customizationItem);
+      return;
+    }
     setCart(
       replaceCartLine(
         slug,
         editingLineKey,
         {
           menuItemId: customizationItem.id,
-          variantId: selection.variantId,
+          variantId: menuItemIsByWeight(customizationItem) ? null : selection.variantId,
+          weightG: menuItemIsByWeight(customizationItem) ? weightG : undefined,
           modifierOptionIds: selection.modifierOptionIds,
           quantity: line.quantity,
         },
@@ -116,6 +183,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
     setEditingLineKey(null);
     setInitialSelection(undefined);
     setCustomizationItem(null);
+    setPendingWeightG(null);
   }
 
   async function placeOrder() {
@@ -132,6 +200,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
       menuItemId: line.menuItemId,
       quantity: line.quantity,
       ...(line.variantId ? { variantId: line.variantId } : {}),
+      ...(line.weightG != null ? { weightG: line.weightG } : {}),
       ...(line.modifierOptionIds.length ? { modifierOptionIds: line.modifierOptionIds } : {}),
     }));
 
@@ -171,6 +240,32 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
       className="min-h-screen bg-surface font-body-base text-on-surface pb-32"
       style={themeStyle}
     >
+      {weightItem && (
+        <WeightEntryModal
+          item={weightItem}
+          open={!!weightItem}
+          quickWeightsOnly
+          formatMoney={(n) => formatMoney(Number(n ?? 0))}
+          themeStyle={themeStyle}
+          initialWeightG={
+            editingLineKey
+              ? cart.find(
+                  (entry) =>
+                    cartLineKey(
+                      entry.menuItemId,
+                      entry.modifierOptionIds,
+                      entry.variantId,
+                      entry.weightG,
+                    ) === editingLineKey,
+                )?.weightG
+              : undefined
+          }
+          onClose={() => setWeightItem(null)}
+          onConfirm={handleWeightConfirm}
+          confirmLabel="Update"
+        />
+      )}
+
       {customizationItem && (
         <ItemCustomizationModal
           item={customizationItem}
@@ -179,6 +274,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
             setCustomizationItem(null);
             setEditingLineKey(null);
             setInitialSelection(undefined);
+            setPendingWeightG(null);
           }}
           initialSelection={initialSelection}
           confirmLabel="Update item"
@@ -200,7 +296,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
       </header>
 
       <main className="px-margin-mobile pt-6 max-w-md mx-auto space-y-4">
-        {lines.map(({ lineKey, line, item, unitPrice, summaryLines }) => (
+        {lines.map(({ lineKey, line, item, lineTotal, summaryLines }) => (
           <div
             key={lineKey}
             className="flex gap-4 p-4 bg-surface-container-lowest border border-outline-variant/30 rounded-xl"
@@ -231,9 +327,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
                     </div>
                   )}
                 </div>
-                <span className="font-mono shrink-0">
-                  {formatMoney(unitPrice * line.quantity)}
-                </span>
+                <span className="font-mono shrink-0">{formatMoney(lineTotal)}</span>
               </div>
               <div className="flex items-center gap-3 mt-2">
                 <button
@@ -251,7 +345,7 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
                 >
                   +
                 </button>
-                {itemNeedsCustomization(item) && (
+                {(itemNeedsCustomization(item) || itemNeedsWeightEntry(item)) && (
                   <button
                     type="button"
                     onClick={() => handleEdit(lineKey, line, item)}
