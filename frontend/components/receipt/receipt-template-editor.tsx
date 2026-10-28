@@ -1,7 +1,12 @@
 'use client';
 
 import { Input } from '@/components/ui';
-import type { ReceiptTemplate } from '@/lib/receipt/receipt-template';
+import {
+  DEFAULT_RECEIPT_TEMPLATE,
+  RECEIPT_LOGO_SIZE_PX_MAX,
+  RECEIPT_LOGO_SIZE_PX_MIN,
+  type ReceiptTemplate,
+} from '@/lib/receipt/receipt-template';
 
 export function ReceiptTemplateEditor({
   value,
@@ -22,11 +27,31 @@ export function ReceiptTemplateEditor({
         <Input
           label="Logo size (px)"
           type="number"
-          min={32}
-          max={80}
+          min={RECEIPT_LOGO_SIZE_PX_MIN}
+          max={RECEIPT_LOGO_SIZE_PX_MAX}
+          step={1}
+          hint={`${RECEIPT_LOGO_SIZE_PX_MIN}–${RECEIPT_LOGO_SIZE_PX_MAX} px width on the receipt (not the 80mm paper setting).`}
           value={String(value.logoSizePx)}
           disabled={disabled}
-          onChange={(e) => patch('logoSizePx', Number(e.target.value) || 42)}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === '') return;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return;
+            patch(
+              'logoSizePx',
+              Math.min(
+                RECEIPT_LOGO_SIZE_PX_MAX,
+                Math.max(RECEIPT_LOGO_SIZE_PX_MIN, Math.round(n)),
+              ),
+            );
+          }}
+          onBlur={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n) || n < RECEIPT_LOGO_SIZE_PX_MIN) {
+              patch('logoSizePx', DEFAULT_RECEIPT_TEMPLATE.logoSizePx);
+            }
+          }}
         />
         <label className="flex flex-col gap-2 font-body-base">
           <span className="font-body-emphasis">Receipt width</span>

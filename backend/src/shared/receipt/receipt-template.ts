@@ -6,7 +6,7 @@ export const receiptTemplateSchema = z.object({
   brandLine: z.string().trim().min(1).max(200),
   contactLine: z.string().trim().max(200),
   showBarcode: z.boolean(),
-  logoSizePx: z.number().int().min(32).max(80),
+  logoSizePx: z.number().int().min(32).max(160),
   customerCopyLabel: z.string().trim().min(1).max(80),
   kitchenCopyLabel: z.string().trim().min(1).max(80),
   receiptWidthMm: z.union([z.literal(58), z.literal(80)]),
@@ -19,7 +19,7 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   brandLine: `${APP_NAME} powered by Nasmak Labs`,
   contactLine: '03256955674 nasmaklabs.com',
   showBarcode: true,
-  logoSizePx: 42,
+  logoSizePx: 80,
   customerCopyLabel: 'Customer Copy',
   kitchenCopyLabel: 'Kitchen Copy',
   receiptWidthMm: 80,
@@ -55,11 +55,18 @@ export function parseReceiptTemplateOverride(value: unknown): ReceiptTemplateOve
   return parsed.success ? parsed.data : null;
 }
 
+const LEGACY_LOGO_SIZE_PX = 42;
+
+function normalizeLogoSizePx(px: number): number {
+  return px === LEGACY_LOGO_SIZE_PX ? DEFAULT_RECEIPT_TEMPLATE.logoSizePx : px;
+}
+
 export function mergeReceiptTemplate(
   platformTemplate: ReceiptTemplate | null | undefined,
   override: ReceiptTemplateOverride | null | undefined,
 ): ReceiptTemplate {
   const base = { ...DEFAULT_RECEIPT_TEMPLATE, ...(platformTemplate ?? {}) };
+  base.logoSizePx = normalizeLogoSizePx(base.logoSizePx);
   if (!override) return receiptTemplateSchema.parse(base);
 
   const merged = { ...base };
@@ -68,5 +75,6 @@ export function mergeReceiptTemplate(
       (merged as Record<string, unknown>)[key] = value;
     }
   }
+  merged.logoSizePx = normalizeLogoSizePx(merged.logoSizePx);
   return receiptTemplateSchema.parse(merged);
 }

@@ -348,10 +348,12 @@ function buildReceiptStyles(
     .center { text-align: center; }
     .logo {
       width: ${logoSizePx}px;
-      height: ${logoSizePx}px;
-      object-fit: cover;
+      max-width: 94%;
+      height: auto;
+      max-height: ${Math.round(logoSizePx * 1.15)}px;
+      object-fit: contain;
       border-radius: 3px;
-      margin: 0 auto 4px;
+      margin: 0 auto 6px;
       display: block;
     }
     .store-name {
