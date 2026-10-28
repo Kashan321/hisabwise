@@ -55,17 +55,26 @@ export function useDeleteCategory() {
   });
 }
 
+type CreateMenuItemBody = {
+  categoryId: string;
+  name: string;
+  description?: string;
+  basePrice?: string | null;
+  imageUrl?: string | null;
+  pricingType?: 'fixed' | 'by_weight';
+  price?: string;
+  pricePerUnit?: string;
+  pricingUnitG?: number;
+  minWeightG?: number | null;
+  weightStepG?: number | null;
+  quickWeightsG?: number[] | null;
+  priceRounding?: number | null;
+};
+
 export function useCreateMenuItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: {
-      categoryId: string;
-      name: string;
-      description?: string;
-      price: string;
-      basePrice?: string;
-      imageUrl?: string;
-    }) =>
+    mutationFn: (body: CreateMenuItemBody) =>
       apiFetch<{ item: MenuItem }>('/menu/items', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -89,15 +98,25 @@ export function useUpdateMenuItem() {
       description?: string;
       imageUrl?: string | null;
       categoryId?: string;
+      pricingType?: 'fixed' | 'by_weight';
+      pricePerUnit?: string;
+      pricingUnitG?: number;
+      minWeightG?: number | null;
+      weightStepG?: number | null;
+      quickWeightsG?: number[] | null;
+      priceRounding?: number | null;
     }) =>
       apiFetch<{ item: MenuItem }>(`/menu/items/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    onMutate: async ({ id, ...patch }) => {
+    onMutate: async ({ id, pricingType, ...patch }) => {
       await qc.cancelQueries({ queryKey: ['menu'] });
       const snapshots = snapshotQueries(qc, ['menu']);
-      patchMenuItemInCache(qc, id, patch);
+      const cachePatch: Partial<MenuItem> = { ...patch };
+      if (pricingType === 'fixed') cachePatch.pricingType = 'FIXED';
+      if (pricingType === 'by_weight') cachePatch.pricingType = 'BY_WEIGHT';
+      patchMenuItemInCache(qc, id, cachePatch);
       return { snapshots };
     },
     onError: (_err, _vars, ctx) => restoreSnapshots(qc, ctx?.snapshots),
@@ -1440,7 +1459,13 @@ export function useImportMenuGalleryCsv() {
 export function useSubmitPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { interval: 'MONTHLY' | 'YEARLY'; proofImageUrl: string }) =>
+    mutationFn: (body: {
+      durationMonths?: number;
+      interval?: 'MONTHLY' | 'YEARLY';
+      amount: number;
+      proofImageUrl: string;
+      transactionReference?: string;
+    }) =>
       apiFetch<{ submission: import('@/lib/api/types').PaymentSubmission }>(
         '/billing/payment-submissions',
         { method: 'POST', body: JSON.stringify(body) },
@@ -1669,15 +1694,26 @@ export function useRejectFeedbackTicket() {
 export function useApprovePaymentSubmission() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, adminNote }: { id: string; adminNote?: string }) =>
+    mutationFn: ({
+      id,
+      adminNote,
+      durationMonths,
+      overrideFinalAmount,
+    }: {
+      id: string;
+      adminNote?: string;
+      durationMonths?: number;
+      overrideFinalAmount?: number;
+    }) =>
       apiFetch(`/platform/billing/payments/${id}/approve`, {
         method: 'POST',
         auth: 'platform',
-        body: JSON.stringify({ adminNote }),
+        body: JSON.stringify({ adminNote, durationMonths, overrideFinalAmount }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['platform', 'billing', 'payments'] });
       qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });
+      qc.invalidateQueries({ queryKey: ['platform', 'audit'] });
     },
   });
 }
@@ -1705,6 +1741,78 @@ export function useSetBusinessTrialDays() {
         method: 'PATCH',
         auth: 'platform',
         body: JSON.stringify({ trialDays }),
+      }),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses', id] });
+    },
+  });
+}
+
+export function useExtendBusinessAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, days }: { id: string; days: number }) =>
+      apiFetch(`/platform/billing/businesses/${id}/extend-access`, {
+        method: 'POST',
+        auth: 'platform',
+        body: JSON.stringify({ days }),
+      }),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses', id] });
+    },
+  });
+}
+
+export function useAdminRenewSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      businessId,
+      ...body
+    }: {
+      businessId: string;
+      durationMonths: number;
+      discountType?: 'PERCENT' | 'FIXED';
+      discountValue?: number;
+      overrideFinalAmount?: number;
+      finalAmount?: number;
+      paymentReference?: string;
+      note?: string;
+      sendInvoice?: boolean;
+      idempotencyKey?: string;
+    }) =>
+      apiFetch(`/platform/billing/businesses/${businessId}/renew`, {
+        method: 'POST',
+        auth: 'platform',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_data, { businessId }) => {
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses', businessId] });
+      qc.invalidateQueries({
+        queryKey: ['platform', 'businesses', businessId, 'renewals'],
+      });
+      qc.invalidateQueries({ queryKey: ['platform', 'audit'] });
+    },
+  });
+}
+
+export function useUpdateBusinessCustomMonthlyPrice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      customMonthlyPrice,
+    }: {
+      id: string;
+      customMonthlyPrice: number | null;
+    }) =>
+      apiFetch(`/platform/businesses/${id}/custom-monthly-price`, {
+        method: 'PATCH',
+        auth: 'platform',
+        body: JSON.stringify({ customMonthlyPrice }),
       }),
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });

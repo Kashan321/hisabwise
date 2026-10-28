@@ -3,24 +3,13 @@ import { authModule } from '../../infrastructure/auth.module';
 import {
   BusinessSuspendedError,
   ForbiddenError,
-  SubscriptionLockedError,
   UnauthorizedError,
 } from '../../domain/errors/auth.errors';
-import { runWithTenantContext } from '../../../../shared/tenant-context/tenant-context';
+import {
+  runWithTenantContextAsync,
+} from '../../../../shared/tenant-context/tenant-context';
 import { prisma } from '../../../../shared/database/prisma-client';
-import { isSubscriptionLocked } from '../../../billing/domain/subscription-access';
-
-function shouldSkipSubscriptionCheck(req: Request): boolean {
-  const url = req.originalUrl.split('?')[0];
-  const allowedPrefixes = [
-    '/api/v1/billing',
-    '/api/v1/auth/logout',
-    '/api/v1/auth/me',
-    '/api/v1/auth/refresh',
-    '/api/v1/files/upload',
-  ];
-  return allowedPrefixes.some((prefix) => url.startsWith(prefix));
-}
+import { enforceSubscriptionAccess } from '../../../billing/presentation/middleware/subscription-access.middleware';
 
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -55,28 +44,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       userName: user?.name,
     };
 
-    if (!shouldSkipSubscriptionCheck(req)) {
-      const business = await prisma.business.findUnique({
-        where: { id: payload.businessId },
-        select: {
-          subscriptionStatus: true,
-          trialEndsAt: true,
-          subscriptionEndsAt: true,
-          isSubscriptionBlocked: true,
-        },
-      });
-      if (business) {
-        const pendingPayment = await prisma.paymentSubmission.findFirst({
-          where: { businessId: payload.businessId, status: 'PENDING' },
-          select: { id: true },
-        });
-        if (isSubscriptionLocked({ ...business, hasPendingPayment: Boolean(pendingPayment) })) {
-          return next(new SubscriptionLockedError());
-        }
-      }
-    }
-
-    return runWithTenantContext(req.tenantContext, () => next());
+    return runWithTenantContextAsync(req.tenantContext, () =>
+      enforceSubscriptionAccess(req, _res, next),
+    );
   } catch (error) {
     return next(error);
   }

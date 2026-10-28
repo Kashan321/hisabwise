@@ -33,7 +33,7 @@ describe('isSubscriptionLocked', () => {
     ).toBe(true);
   });
 
-  it('does not lock TRIAL tenant with pending payment after trial end', () => {
+  it('locks TRIAL tenant with pending payment after trial end without temp access', () => {
     expect(
       isSubscriptionLocked(
         {
@@ -44,7 +44,7 @@ describe('isSubscriptionLocked', () => {
         },
         now,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('does not lock TRIAL tenant with future paid subscriptionEndsAt', () => {

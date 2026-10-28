@@ -34,14 +34,57 @@ export function SubscriptionNoticeBanner({
     () => false,
   );
 
-  if (!subscription || subscription.isLocked) return null;
+  if (!subscription || subscription.isLocked || subscription.accessPhase === 'locked') {
+    return null;
+  }
 
   const subscribeHref = `/${slug}/subscription`;
+  const periodEnd = getSubscriptionPeriodEnd(subscription);
+  const phase = subscription.accessPhase;
+
+  if (phase === 'grace') {
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-error/30 bg-error-container/30 px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-body-emphasis text-on-surface">Subscription ended — grace period</p>
+          <p className="font-caption text-on-surface-variant mt-0.5">
+            Your subscription ended
+            {periodEnd ? ` on ${periodEnd.toLocaleDateString()}` : ''}. Renew now to avoid read-only
+            access.
+          </p>
+        </div>
+        <Link href={subscribeHref} className="shrink-0">
+          <Button variant="primary" className="w-full sm:w-auto">
+            Renew now
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (phase === 'read_only' || subscription.isReadOnly) {
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-error/40 bg-error-container/40 px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-body-emphasis text-on-surface">Account read-only</p>
+          <p className="font-caption text-on-surface-variant mt-0.5">
+            Your subscription has expired. You can view data but cannot make changes. Renew now, or
+            contact the admin to export your data.
+          </p>
+        </div>
+        <Link href={subscribeHref} className="shrink-0">
+          <Button variant="primary" className="w-full sm:w-auto">
+            Renew now
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
   const status = subscriptionStatusOf(subscription);
   const daysLeft = getSubscriptionDaysRemaining(subscription);
-  const periodEnd = getSubscriptionPeriodEnd(subscription);
 
-  if (subscription.hasPendingPayment) {
+  if (subscription.hasPendingPayment || phase === 'pending_verification') {
     return (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-secondary/30 bg-secondary-container/40 px-4 py-3">
         <div className="flex items-start gap-3 min-w-0">
@@ -175,6 +218,15 @@ export function SubscriptionNoticeBanner({
   }
 
   if (status === 'ACTIVE' && daysLeft != null && subscription.expiryWarning) {
+    const reminder = subscription.expiryReminderDays;
+    const reminderLabel =
+      reminder === 7
+        ? '7-day renewal reminder'
+        : reminder === 3
+          ? '3-day renewal reminder'
+          : reminder === 1
+            ? 'Final day — renew today'
+            : 'Subscription ending soon';
     return (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-error/30 bg-error-container/30 px-4 py-3">
         <div className="flex items-start gap-3 min-w-0">
@@ -182,7 +234,7 @@ export function SubscriptionNoticeBanner({
             <Icon name="event_busy" className="text-error text-xl" />
           </div>
           <div className="min-w-0">
-            <p className="font-body-emphasis text-on-surface">Subscription ending soon</p>
+            <p className="font-body-emphasis text-on-surface">{reminderLabel}</p>
             <p className="font-caption text-on-surface-variant mt-0.5">
               {formatDaysRemaining(daysLeft)} remaining
               {periodEnd ? ` · renew by ${periodEnd.toLocaleDateString()}` : ''} to avoid losing access.

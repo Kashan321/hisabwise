@@ -293,3 +293,39 @@ export class ListAuditLogsUseCase {
     return this.auditLogRepository.list(limit);
   }
 }
+
+export class UpdateBusinessCustomMonthlyPriceUseCase {
+  constructor(
+    private readonly businessRepository: PlatformBusinessRepository,
+    private readonly auditLogRepository: PlatformAuditLogRepository,
+  ) {}
+
+  async execute(
+    platformUserId: string,
+    businessId: string,
+    customMonthlyPrice: number | null,
+  ) {
+    const existing = await this.businessRepository.findById(businessId);
+    if (!existing) {
+      throw new BusinessNotFoundError();
+    }
+
+    const business = await this.businessRepository.updateCustomMonthlyPrice(
+      businessId,
+      customMonthlyPrice,
+    );
+
+    await this.auditLogRepository.create({
+      platformUserId,
+      action: 'business.custom_monthly_price.updated',
+      targetType: 'business',
+      targetId: businessId,
+      metadata: {
+        previous: existing.customMonthlyPrice,
+        customMonthlyPrice,
+      },
+    });
+
+    return business;
+  }
+}

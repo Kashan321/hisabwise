@@ -10,10 +10,17 @@ export const stripeWebhookSchema = z.object({
     .optional(),
 });
 
-export const submitPaymentSchema = z.object({
-  interval: z.enum(['MONTHLY', 'YEARLY']),
-  proofImageUrl: storageReferenceSchema,
-});
+export const submitPaymentSchema = z
+  .object({
+    durationMonths: z.coerce.number().int().refine((n) => [1, 3, 6, 9, 12].includes(n)).optional(),
+    interval: z.enum(['MONTHLY', 'YEARLY']).optional(),
+    amount: z.coerce.number().min(0),
+    proofImageUrl: storageReferenceSchema,
+    transactionReference: z.string().max(200).optional(),
+  })
+  .refine((data) => data.durationMonths != null || data.interval != null, {
+    message: 'Provide durationMonths (1, 3, 6, 9, 12) or legacy interval',
+  });
 
 export const updateBillingSettingsSchema = z.object({
   defaultTrialDays: z.coerce.number().int().min(1).max(365).optional(),
@@ -26,10 +33,40 @@ export const updateBillingSettingsSchema = z.object({
   iban: z.string().max(100).nullable().optional(),
   swiftCode: z.string().max(50).nullable().optional(),
   paymentInstructions: z.string().max(5000).nullable().optional(),
+  gracePeriodDays: z.coerce.number().int().min(0).max(30).optional(),
+  readOnlyPeriodDays: z.coerce.number().int().min(0).max(90).optional(),
+});
+
+export const adminRenewSubscriptionSchema = z.object({
+  durationMonths: z.coerce.number().int().refine((n) => [1, 3, 6, 9, 12].includes(n)),
+  customDays: z.coerce.number().int().min(1).max(730).optional(),
+  discountType: z.enum(['PERCENT', 'FIXED']).optional(),
+  discountValue: z.coerce.number().min(0).optional(),
+  overrideFinalAmount: z.coerce.number().min(0).optional(),
+  paymentMethod: z.string().max(50).optional(),
+  paymentReference: z.string().max(200).optional(),
+  note: z.string().max(2000).optional(),
+  sendInvoice: z.boolean().optional(),
+  idempotencyKey: z.string().max(100).optional(),
+  finalAmount: z.coerce.number().min(0).optional(),
+});
+
+export const extendAccessDaysSchema = z.object({
+  days: z.coerce.number().int().min(1).max(365),
 });
 
 export const reviewPaymentSchema = z.object({
   adminNote: z.string().max(2000).optional(),
+  durationMonths: z.coerce
+    .number()
+    .int()
+    .refine((n) => [1, 3, 6, 9, 12].includes(n))
+    .optional(),
+  overrideFinalAmount: z.coerce.number().min(0).optional(),
+});
+
+export const updateBusinessCustomMonthlyPriceSchema = z.object({
+  customMonthlyPrice: z.coerce.number().min(0).nullable(),
 });
 
 export const setTrialDaysSchema = z.object({

@@ -11,6 +11,8 @@ export interface BusinessSummary {
   trialEndsAt: Date | null;
   subscriptionEndsAt: Date | null;
   billingInterval: string | null;
+  customMonthlyPrice: number | null;
+  subscriptionTempAccessUntil: Date | null;
   createdAt: Date;
   userCount: number;
   orderCount: number;
@@ -32,6 +34,7 @@ export interface PlatformBusinessRepository {
   updateSubscription(id: string, status: SubscriptionStatus): Promise<BusinessDetail>;
   setSuspended(id: string, isSuspended: boolean): Promise<BusinessDetail>;
   setSubscriptionBlocked(id: string, isSubscriptionBlocked: boolean): Promise<BusinessDetail>;
+  updateCustomMonthlyPrice(id: string, customMonthlyPrice: number | null): Promise<BusinessDetail>;
   delete(id: string): Promise<void>;
 }
 

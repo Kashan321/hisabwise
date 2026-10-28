@@ -185,7 +185,7 @@ export default function CustomerMenuPage({ params }: { params: Promise<{ slug: s
           item={weightItem}
           open={!!weightItem}
           quickWeightsOnly
-          formatMoney={formatMoney}
+          formatMoney={(amount) => formatMoney(amount ?? 0)}
           themeStyle={themeToStyle(business)}
           onClose={() => setWeightItem(null)}
           onConfirm={handleWeightConfirm}

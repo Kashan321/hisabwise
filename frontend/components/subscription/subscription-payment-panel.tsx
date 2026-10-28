@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, Spinner } from '@/components/ui';
+import { Button, Icon, Input, Spinner } from '@/components/ui';
 import { ImageUploadField } from '@/components/files/image-upload-field';
 import { formatApiError } from '@/lib/api/errors';
 import {
@@ -92,8 +92,9 @@ export function SubscriptionPaymentPanel({
   const { data: instructions, isLoading } = usePaymentInstructions();
   const { data: submissions = [] } = useMyPaymentSubmissions();
   const submitPayment = useSubmitPayment();
-  const [interval, setInterval] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [durationMonths, setDurationMonths] = useState(1);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [transactionReference, setTransactionReference] = useState('');
 
   const pending = submissions.find((s) => s.status === 'PENDING');
   const lastRejected = submissions.find((s) => s.status === 'REJECTED');
@@ -119,8 +120,16 @@ export function SubscriptionPaymentPanel({
     );
   }
 
+  const durationPlans =
+    subscription?.durationPlans ??
+    [1, 3, 6, 9, 12].map((months) => ({
+      durationMonths: months,
+      price: Math.round(instructions.plans.monthly.price * months * 100) / 100,
+      currency: instructions.plans.monthly.currency,
+    }));
+
   const selectedPlan =
-    interval === 'MONTHLY' ? instructions.plans.monthly : instructions.plans.yearly;
+    durationPlans.find((p) => p.durationMonths === durationMonths) ?? durationPlans[0]!;
 
   async function handleSubmit() {
     if (!proofUrl) {
@@ -128,7 +137,12 @@ export function SubscriptionPaymentPanel({
       return;
     }
     try {
-      await submitPayment.mutateAsync({ interval, proofImageUrl: proofUrl });
+      await submitPayment.mutateAsync({
+        durationMonths: selectedPlan.durationMonths,
+        amount: selectedPlan.price,
+        proofImageUrl: proofUrl,
+        transactionReference: transactionReference.trim() || undefined,
+      });
       toast.success('Payment submitted for review');
       setProofUrl(null);
     } catch (err) {
@@ -185,22 +199,22 @@ export function SubscriptionPaymentPanel({
       )}
 
       <section className="space-y-3">
-        <h2 className="font-title-lg text-primary">Choose a plan</h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <PlanCard
-            label="Monthly"
-            price={instructions.plans.monthly.price}
-            currency={instructions.plans.monthly.currency}
-            selected={interval === 'MONTHLY'}
-            onSelect={() => setInterval('MONTHLY')}
-          />
-          <PlanCard
-            label="Yearly"
-            price={instructions.plans.yearly.price}
-            currency={instructions.plans.yearly.currency}
-            selected={interval === 'YEARLY'}
-            onSelect={() => setInterval('YEARLY')}
-          />
+        <h2 className="font-title-lg text-primary">Choose duration</h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {durationPlans.map((plan) => (
+            <PlanCard
+              key={plan.durationMonths}
+              label={
+                plan.durationMonths === 1
+                  ? '1 month'
+                  : `${plan.durationMonths} months`
+              }
+              price={plan.price}
+              currency={plan.currency}
+              selected={durationMonths === plan.durationMonths}
+              onSelect={() => setDurationMonths(plan.durationMonths)}
+            />
+          ))}
         </div>
       </section>
 
@@ -211,14 +225,22 @@ export function SubscriptionPaymentPanel({
         </h2>
         <BankDetails instructions={instructions} />
         <p className="font-caption text-on-surface-variant">
-          Transfer {formatMoney(selectedPlan.price, selectedPlan.currency)} for the{' '}
-          {interval === 'MONTHLY' ? 'monthly' : 'yearly'} plan, then upload your payment
-          screenshot below.
+          Transfer {formatMoney(selectedPlan.price, selectedPlan.currency)} for{' '}
+          {selectedPlan.durationMonths === 1
+            ? '1 month'
+            : `${selectedPlan.durationMonths} months`}
+          , then upload your payment screenshot below.
         </p>
       </section>
 
       <section className="space-y-3">
         <h2 className="font-title-lg text-primary">Payment proof</h2>
+        <Input
+          label="Transaction ID / reference (optional)"
+          value={transactionReference}
+          onChange={(e) => setTransactionReference(e.target.value)}
+          placeholder="Bank reference or transaction ID"
+        />
         <ImageUploadField
           label="Upload payment screenshot"
           value={proofUrl}

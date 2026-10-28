@@ -872,6 +872,14 @@ export interface PlatformBusiness {
   trialEndsAt?: string | null;
   subscriptionEndsAt?: string | null;
   billingInterval?: string | null;
+  customMonthlyPrice?: number | null;
+  effectiveMonthlyPrice?: number;
+  accessPhase?: SubscriptionAccessPhase;
+  periodEndsAt?: string | null;
+  daysRemaining?: number | null;
+  daysExpired?: number | null;
+  hasPendingPayment?: boolean;
+  tempAccessUntil?: string | null;
   createdAt: string;
   userCount: number;
   orderCount: number;
@@ -882,6 +890,20 @@ export interface PlatformBusiness {
   secondaryColor?: string | null;
   backgroundColor?: string | null;
   textColor?: string | null;
+}
+
+export interface SubscriptionRenewalRecord {
+  id: string;
+  businessId: string;
+  source: string;
+  durationMonths: number;
+  periodStartsAt: string;
+  periodEndsAt: string;
+  finalAmount: string | number;
+  currency: string;
+  note?: string | null;
+  createdAt: string;
+  createdBy?: { id: string; name: string } | null;
 }
 
 export interface PlatformTenantAnalyticsRow {
@@ -1064,6 +1086,15 @@ export interface SubscriptionInvoiceAlert {
   alertDaysRemaining: number;
 }
 
+export type SubscriptionAccessPhase =
+  | 'active'
+  | 'trial'
+  | 'grace'
+  | 'read_only'
+  | 'locked'
+  | 'pending_verification'
+  | 'suspended';
+
 export interface TenantSubscription {
   businessId: string;
   status: string;
@@ -1074,9 +1105,16 @@ export interface TenantSubscription {
   periodEndsAt?: string | null;
   daysRemaining?: number | null;
   expiryWarning?: boolean;
+  expiryReminderDays?: 7 | 3 | 1 | null;
+  accessPhase?: SubscriptionAccessPhase;
   isLocked: boolean;
+  isReadOnly?: boolean;
   isSubscriptionBlocked?: boolean;
   hasPendingPayment: boolean;
+  tempAccessUntil?: string | null;
+  effectiveMonthlyPrice?: number;
+  customMonthlyPrice?: number | null;
+  durationPlans?: Array<{ durationMonths: number; price: number; currency: string }>;
   subscriptionInvoice?: SubscriptionInvoiceAlert | null;
   purchaseReceipt?: SubscriptionInvoiceAlert | null;
   latestPurchaseReceipt?: SubscriptionInvoiceAlert | null;
@@ -1137,10 +1175,16 @@ export interface PaymentSubmission {
   id: string;
   businessId: string;
   interval: 'MONTHLY' | 'YEARLY';
+  durationMonths?: number | null;
   amount: string | number;
+  expectedAmount?: number | null;
+  transactionReference?: string | null;
   proofImageUrl: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   adminNote?: string | null;
+  tempAccessGranted?: boolean;
+  tempAccessUntil?: string | null;
+  tempAccessSkipped?: boolean;
   createdAt: string;
   reviewedAt?: string | null;
   business?: { id: string; name: string; slug: string };
@@ -1151,6 +1195,8 @@ export interface PlatformBillingSettings {
   monthlyPrice: number;
   yearlyPrice: number;
   currency: string;
+  gracePeriodDays?: number;
+  readOnlyPeriodDays?: number;
   bankName?: string | null;
   accountTitle?: string | null;
   accountNumber?: string | null;

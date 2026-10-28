@@ -35,6 +35,8 @@ export class BillingSettingsRepository {
     iban?: string | null;
     swiftCode?: string | null;
     paymentInstructions?: string | null;
+    gracePeriodDays?: number;
+    readOnlyPeriodDays?: number;
   }) {
     await this.getOrCreate();
     return prisma.platformBillingSettings.update({

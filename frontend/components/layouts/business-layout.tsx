@@ -215,7 +215,12 @@ export function BusinessLayout({
     return null;
   }
 
-  if (subscription?.isLocked && !isSubscriptionRoute) {
+  const subscriptionHardLocked =
+    subscription?.isLocked ||
+    subscription?.accessPhase === 'locked' ||
+    subscription?.accessPhase === 'suspended';
+
+  if (subscriptionHardLocked && !isSubscriptionRoute) {
     return (
       <SubscriptionLockScreen slug={slug} subscription={subscription} onLogout={logout} />
     );

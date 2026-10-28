@@ -21,6 +21,8 @@ function mapBusinessSummary(
     trialEndsAt: Date | null;
     subscriptionEndsAt: Date | null;
     billingInterval: string | null;
+    customMonthlyPrice: { toString(): string } | null;
+    subscriptionTempAccessUntil: Date | null;
     createdAt: Date;
     _count: { users: number; orders: number };
     users: Array<{ email: string; name: string }>;
@@ -38,6 +40,10 @@ function mapBusinessSummary(
     trialEndsAt: business.trialEndsAt,
     subscriptionEndsAt: business.subscriptionEndsAt,
     billingInterval: business.billingInterval,
+    customMonthlyPrice: business.customMonthlyPrice
+      ? Number(business.customMonthlyPrice.toString())
+      : null,
+    subscriptionTempAccessUntil: business.subscriptionTempAccessUntil,
     createdAt: business.createdAt,
     userCount: business._count.users,
     orderCount: business._count.orders,
@@ -148,6 +154,28 @@ export class PrismaPlatformBusinessRepository implements PlatformBusinessReposit
     const business = await this.prisma.business.update({
       where: { id },
       data: { isSuspended },
+      include: businessInclude,
+    });
+
+    return {
+      ...mapBusinessSummary(business),
+      logoUrl: business.logoUrl,
+      primaryColor: business.primaryColor,
+      secondaryColor: business.secondaryColor,
+      backgroundColor: business.backgroundColor,
+      textColor: business.textColor,
+    };
+  }
+
+  async updateCustomMonthlyPrice(
+    id: string,
+    customMonthlyPrice: number | null,
+  ): Promise<BusinessDetail> {
+    const business = await this.prisma.business.update({
+      where: { id },
+      data: {
+        customMonthlyPrice: customMonthlyPrice != null ? customMonthlyPrice : null,
+      },
       include: businessInclude,
     });
 

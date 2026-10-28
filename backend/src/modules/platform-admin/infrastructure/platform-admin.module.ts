@@ -15,6 +15,7 @@ import {
   UnblockBusinessSubscriptionUseCase,
   ReactivateBusinessUseCase,
   SuspendBusinessUseCase,
+  UpdateBusinessCustomMonthlyPriceUseCase,
   UpdateBusinessSubscriptionUseCase,
   UpdatePlatformAdminUseCase,
 } from '../application/use-cases/platform-management.use-cases';
@@ -68,6 +69,10 @@ export const platformAdminModule = {
   ),
   getBusiness: new GetBusinessUseCase(businessRepository),
   updateBusinessSubscription: new UpdateBusinessSubscriptionUseCase(
+    businessRepository,
+    auditLogRepository,
+  ),
+  updateBusinessCustomMonthlyPrice: new UpdateBusinessCustomMonthlyPriceUseCase(
     businessRepository,
     auditLogRepository,
   ),

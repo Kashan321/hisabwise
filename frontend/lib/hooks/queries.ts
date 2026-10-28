@@ -668,6 +668,18 @@ export function usePlatformBusiness(id: string | null) {
   });
 }
 
+export function usePlatformSubscriptionRenewals(businessId: string | null) {
+  return useQuery({
+    queryKey: ['platform', 'businesses', businessId, 'renewals'],
+    queryFn: () =>
+      apiFetch<{ renewals: import('@/lib/api/types').SubscriptionRenewalRecord[] }>(
+        `/platform/billing/businesses/${businessId}/renewals`,
+        { auth: 'platform' },
+      ).then((d) => d.renewals),
+    enabled: Boolean(businessId),
+  });
+}
+
 export function usePlatformBusinessSubscriptionInvoices(businessId: string | null) {
   return useQuery({
     queryKey: ['platform', 'businesses', businessId, 'subscription-invoices'],

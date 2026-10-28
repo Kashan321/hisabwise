@@ -48,6 +48,8 @@ function mapTicketItem(item: {
   lineTotal: Prisma.Decimal;
   customizationNotes: string | null;
   isKitchenAddition: boolean;
+  weightG: number | null;
+  unitPricePerKg: Prisma.Decimal | null;
   menuItem: { imageUrl: string | null } | null;
   modifiers: Array<{
     id: string;
@@ -69,6 +71,8 @@ function mapTicketItem(item: {
     lineTotal: decimalToString(item.lineTotal),
     customizationNotes: item.customizationNotes,
     isKitchenAddition: item.isKitchenAddition,
+    weightG: item.weightG,
+    unitPricePerKg: item.unitPricePerKg ? decimalToString(item.unitPricePerKg) : null,
     modifiers: item.modifiers.map((modifier) => ({
       id: modifier.id,
       modifierOptionId: modifier.modifierOptionId,

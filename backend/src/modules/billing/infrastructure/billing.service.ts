@@ -13,8 +13,16 @@ import {
   addIntervalEnd,
   getAccessPeriodEnd,
   getSubscriptionDaysRemaining,
-  isSubscriptionLocked,
+  resolveSubscriptionAccessPhase,
+  subscriptionAllowsWrite,
+  computeTempAccessUntil,
 } from '../domain/subscription-access';
+import {
+  calculateRenewalPricing,
+  resolveTenantMonthlyPrice,
+} from '../domain/subscription-pricing';
+import { computeExpiryReminderDays } from './platform-business-subscription.view';
+import { subscriptionRenewalService } from './subscription-renewal.service';
 import { billingSettingsRepository } from './billing-settings.repository';
 import { normalizeStorageKey } from '../../files/infrastructure/storage-reference';
 import { filesModule } from '../../files/infrastructure/files.module';
@@ -44,7 +52,19 @@ function mapSettings(settings: Awaited<ReturnType<typeof billingSettingsReposito
     iban: settings.iban,
     swiftCode: settings.swiftCode,
     paymentInstructions: settings.paymentInstructions,
+    gracePeriodDays: settings.gracePeriodDays,
+    readOnlyPeriodDays: settings.readOnlyPeriodDays,
   };
+}
+
+const RENEWAL_DURATIONS = [1, 3, 6, 9, 12] as const;
+
+function buildDurationPlans(monthlyPrice: number, currency: string) {
+  return RENEWAL_DURATIONS.map((months) => ({
+    durationMonths: months,
+    price: Math.round(monthlyPrice * months * 100) / 100,
+    currency,
+  }));
 }
 
 export class BillingService {
@@ -58,11 +78,28 @@ export class BillingService {
       orderBy: { createdAt: 'desc' },
     });
     const hasPendingPayment = Boolean(pendingSubmission);
-    const locked = isSubscriptionLocked({ ...business, hasPendingPayment });
+    const lifecycle = {
+      gracePeriodDays: settings.gracePeriodDays,
+      readOnlyPeriodDays: settings.readOnlyPeriodDays,
+    };
+    const accessPhase = resolveSubscriptionAccessPhase(
+      { ...business, isSuspended: business.isSuspended },
+      lifecycle,
+    );
+    const locked = accessPhase === 'locked' || accessPhase === 'suspended';
+    const isReadOnly = accessPhase === 'read_only';
     const periodEndsAt = getAccessPeriodEnd(business);
     const daysRemaining = getSubscriptionDaysRemaining(business);
     const expiryWarning =
-      daysRemaining !== null && daysRemaining <= 2 && !locked && !hasPendingPayment;
+      daysRemaining !== null &&
+      daysRemaining <= 7 &&
+      subscriptionAllowsWrite(accessPhase) &&
+      !hasPendingPayment;
+    const expiryReminderDays = computeExpiryReminderDays(daysRemaining);
+    const tenantMonthly = resolveTenantMonthlyPrice(
+      decimalToNumber(settings.monthlyPrice),
+      business.customMonthlyPrice ? decimalToNumber(business.customMonthlyPrice) : null,
+    );
     const subscriptionInvoice = await this.getActiveSubscriptionInvoiceAlert(businessId);
     const purchaseReceipt = await this.getActivePurchaseReceiptAlert(businessId);
     const latestPurchaseReceipt = await this.getLatestPurchaseReceipt(businessId);
@@ -77,21 +114,30 @@ export class BillingService {
       periodEndsAt,
       daysRemaining,
       expiryWarning,
+      expiryReminderDays,
+      accessPhase,
       isLocked: locked,
+      isReadOnly,
       isSubscriptionBlocked: business.isSubscriptionBlocked,
       hasPendingPayment,
+      tempAccessUntil: business.subscriptionTempAccessUntil?.toISOString() ?? null,
+      customMonthlyPrice: business.customMonthlyPrice
+        ? decimalToNumber(business.customMonthlyPrice)
+        : null,
+      effectiveMonthlyPrice: tenantMonthly,
       subscriptionInvoice,
       purchaseReceipt,
       latestPurchaseReceipt,
+      durationPlans: buildDurationPlans(tenantMonthly, settings.currency),
       plans: {
         monthly: {
           interval: 'MONTHLY' as const,
-          price: decimalToNumber(settings.monthlyPrice),
+          price: tenantMonthly,
           currency: settings.currency,
         },
         yearly: {
           interval: 'YEARLY' as const,
-          price: decimalToNumber(settings.yearlyPrice),
+          price: Math.round(tenantMonthly * 12 * 100) / 100,
           currency: settings.currency,
         },
       },
@@ -100,17 +146,19 @@ export class BillingService {
 
   async getPaymentInstructions() {
     const settings = await billingSettingsRepository.getOrCreate();
+    const monthlyPrice = decimalToNumber(settings.monthlyPrice);
+    const yearlyFromMonthly = Math.round(monthlyPrice * 12 * 100) / 100;
     return {
       ...mapSettings(settings),
       plans: {
         monthly: {
           interval: 'MONTHLY' as const,
-          price: decimalToNumber(settings.monthlyPrice),
+          price: monthlyPrice,
           currency: settings.currency,
         },
         yearly: {
           interval: 'YEARLY' as const,
-          price: decimalToNumber(settings.yearlyPrice),
+          price: yearlyFromMonthly,
           currency: settings.currency,
         },
       },
@@ -119,7 +167,14 @@ export class BillingService {
 
   async submitPayment(
     businessId: string,
-    input: { interval: BillingInterval; proofImageUrl: string },
+    input: {
+      durationMonths: number;
+      proofImageUrl: string;
+      amount: number;
+      transactionReference?: string;
+      /** @deprecated use durationMonths */
+      interval?: BillingInterval;
+    },
   ) {
     const business = await prisma.business.findUnique({ where: { id: businessId } });
     if (!business) throw new BusinessNotFoundError();
@@ -132,18 +187,79 @@ export class BillingService {
     }
 
     const settings = await billingSettingsRepository.getOrCreate();
-    const amount =
-      input.interval === 'MONTHLY'
-        ? decimalToNumber(settings.monthlyPrice)
-        : decimalToNumber(settings.yearlyPrice);
+    const monthlyPrice = resolveTenantMonthlyPrice(
+      decimalToNumber(settings.monthlyPrice),
+      business.customMonthlyPrice ? decimalToNumber(business.customMonthlyPrice) : null,
+    );
+    const durationMonths =
+      input.durationMonths ??
+      (input.interval === 'YEARLY' ? 12 : 1);
+    const expectedAmount = Math.round(monthlyPrice * durationMonths * 100) / 100;
+    const interval: BillingInterval = durationMonths >= 12 ? 'YEARLY' : 'MONTHLY';
 
-    const submission = await prisma.paymentSubmission.create({
-      data: {
-        businessId,
-        interval: input.interval,
-        amount,
-        proofImageUrl: normalizeStorageKey(input.proofImageUrl),
-      },
+    const now = new Date();
+    const renewTargetPeriodEnd = getAccessPeriodEnd(business, now);
+    const lifecycle = {
+      gracePeriodDays: settings.gracePeriodDays,
+      readOnlyPeriodDays: settings.readOnlyPeriodDays,
+    };
+    const phase = resolveSubscriptionAccessPhase(
+      { ...business, isSuspended: business.isSuspended },
+      lifecycle,
+      now,
+    );
+    const needsTempAccess =
+      phase === 'grace' ||
+      phase === 'read_only' ||
+      phase === 'locked' ||
+      (renewTargetPeriodEnd != null && renewTargetPeriodEnd <= now);
+
+    let tempAccessGranted = false;
+    let tempAccessUntil: Date | null = null;
+    let tempAccessSkipped = false;
+
+    if (needsTempAccess) {
+      const usedFor = business.subscriptionTempAccessForPeriodEnd;
+      const samePeriod =
+        usedFor &&
+        renewTargetPeriodEnd &&
+        usedFor.getTime() === renewTargetPeriodEnd.getTime();
+      if (samePeriod) {
+        tempAccessSkipped = true;
+      } else {
+        tempAccessGranted = true;
+        tempAccessUntil = computeTempAccessUntil(now);
+      }
+    }
+
+    const submission = await prisma.$transaction(async (tx) => {
+      const row = await tx.paymentSubmission.create({
+        data: {
+          businessId,
+          interval,
+          durationMonths,
+          amount: input.amount,
+          expectedAmount,
+          proofImageUrl: normalizeStorageKey(input.proofImageUrl),
+          transactionReference: input.transactionReference ?? null,
+          renewTargetPeriodEnd,
+          tempAccessGranted,
+          tempAccessUntil,
+          tempAccessSkipped,
+        },
+      });
+
+      if (tempAccessGranted && tempAccessUntil && renewTargetPeriodEnd) {
+        await tx.business.update({
+          where: { id: businessId },
+          data: {
+            subscriptionTempAccessUntil: tempAccessUntil,
+            subscriptionTempAccessForPeriodEnd: renewTargetPeriodEnd,
+          },
+        });
+      }
+
+      return row;
     });
 
     return submission;
@@ -186,6 +302,10 @@ export class BillingService {
         const resolved = await filesModule.getFileReadUrl.execute(submission.proofImageUrl);
         return {
           ...submission,
+          amount: decimalToNumber(submission.amount),
+          expectedAmount: submission.expectedAmount
+            ? decimalToNumber(submission.expectedAmount)
+            : null,
           proofImageUrl: resolved.url,
         };
       }),
@@ -196,8 +316,13 @@ export class BillingService {
     submissionId: string,
     platformUserId: string,
     action: 'approve' | 'reject',
-    adminNote?: string,
+    options?: {
+      adminNote?: string;
+      durationMonths?: number;
+      overrideFinalAmount?: number;
+    },
   ) {
+    const adminNote = options?.adminNote;
     const submission = await prisma.paymentSubmission.findUnique({
       where: { id: submissionId },
       include: { business: true },
@@ -211,54 +336,124 @@ export class BillingService {
 
     const now = new Date();
     if (action === 'reject') {
-      return prisma.paymentSubmission.update({
+      await prisma.$transaction([
+        prisma.paymentSubmission.update({
+          where: { id: submissionId },
+          data: {
+            status: 'REJECTED',
+            adminNote: adminNote ?? null,
+            reviewedById: platformUserId,
+            reviewedAt: now,
+          },
+        }),
+        prisma.business.update({
+          where: { id: submission.businessId },
+          data: {
+            subscriptionTempAccessUntil: null,
+          },
+        }),
+      ]);
+      return prisma.paymentSubmission.findUnique({ where: { id: submissionId } });
+    }
+
+    const durationMonths =
+      options?.durationMonths ??
+      submission.durationMonths ??
+      (submission.interval === 'YEARLY' ? 12 : 1);
+    const monthlyPrice = await subscriptionRenewalService.getTenantMonthlyPrice(submission.businessId);
+    const submittedAmount = decimalToNumber(submission.amount);
+    const overrideFinalAmount =
+      options?.overrideFinalAmount != null ? options.overrideFinalAmount : submittedAmount;
+    const pricing = calculateRenewalPricing({
+      monthlyPrice,
+      durationMonths,
+      overrideFinalAmount,
+    });
+
+    const tempStarted = submission.tempAccessGranted ? submission.createdAt : null;
+
+    if (
+      durationMonths !== submission.durationMonths ||
+      Math.abs(pricing.finalAmount - submittedAmount) > 0.009
+    ) {
+      await prisma.paymentSubmission.update({
         where: { id: submissionId },
         data: {
-          status: 'REJECTED',
-          adminNote: adminNote ?? null,
-          reviewedById: platformUserId,
-          reviewedAt: now,
+          durationMonths,
+          amount: pricing.finalAmount,
+          expectedAmount: pricing.baseAmount,
         },
       });
     }
 
-    const subscriptionEndsAt = addIntervalEnd(now, submission.interval);
+    await subscriptionRenewalService.applyRenewal(submission.businessId, {
+      durationMonths,
+      pricing,
+      currency: (await billingSettingsRepository.getOrCreate()).currency,
+      paymentReference: submission.transactionReference ?? undefined,
+      note: adminNote ?? undefined,
+      source: 'TENANT_SUBMISSION',
+      createdById: platformUserId,
+      paymentSubmissionId: submissionId,
+      tempAccessStartedAt: tempStarted,
+    });
 
-    await prisma.$transaction([
-      prisma.paymentSubmission.update({
-        where: { id: submissionId },
-        data: {
-          status: 'APPROVED',
-          adminNote: adminNote ?? null,
-          reviewedById: platformUserId,
-          reviewedAt: now,
-        },
-      }),
-      prisma.business.update({
-        where: { id: submission.businessId },
-        data: {
-          subscriptionStatus: 'ACTIVE',
-          billingInterval: submission.interval,
-          subscriptionEndsAt,
-          trialEndsAt: null,
-          isSubscriptionBlocked: false,
-        },
-      }),
-      prisma.subscriptionInvoice.updateMany({
-        where: {
-          businessId: submission.businessId,
-          status: 'OPEN',
-          kind: SubscriptionInvoiceKind.PAYMENT_REQUEST,
-        },
-        data: { status: 'PAID' },
-      }),
-    ]);
+    await prisma.paymentSubmission.update({
+      where: { id: submissionId },
+      data: {
+        status: 'APPROVED',
+        adminNote: adminNote ?? null,
+        reviewedById: platformUserId,
+        reviewedAt: now,
+      },
+    });
+
+    await prisma.subscriptionInvoice.updateMany({
+      where: {
+        businessId: submission.businessId,
+        status: 'OPEN',
+        kind: SubscriptionInvoiceKind.PAYMENT_REQUEST,
+      },
+      data: { status: 'PAID' },
+    });
 
     await this.issuePurchaseReceiptForSubmission(submissionId, platformUserId).catch(() => {
       /* receipt generation is best-effort; approval already succeeded */
     });
 
     return prisma.paymentSubmission.findUnique({ where: { id: submissionId } });
+  }
+
+  async extendAccessDays(businessId: string, days: number) {
+    const business = await prisma.business.findUnique({ where: { id: businessId } });
+    if (!business) throw new BusinessNotFoundError();
+
+    const now = new Date();
+    const currentEnd = getAccessPeriodEnd(business, now) ?? now;
+    const base = currentEnd > now ? currentEnd : now;
+    const newEnd = new Date(base);
+    newEnd.setDate(newEnd.getDate() + days);
+
+    return prisma.business.update({
+      where: { id: businessId },
+      data: {
+        subscriptionStatus: business.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'ACTIVE',
+        subscriptionEndsAt: newEnd,
+        ...(business.subscriptionStatus === 'TRIAL' ? { trialEndsAt: newEnd } : {}),
+        isSubscriptionBlocked: false,
+      },
+    });
+  }
+
+  async listSubscriptionRenewals(businessId: string) {
+    return prisma.subscriptionRenewal.findMany({
+      where: { businessId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
   }
 
   async setBusinessTrialDays(businessId: string, trialDays: number) {
@@ -466,6 +661,10 @@ export class BillingService {
 
     const settings = await billingSettingsRepository.getOrCreate();
     const currency = settings.currency;
+    const tenantMonthly = resolveTenantMonthlyPrice(
+      decimalToNumber(settings.monthlyPrice),
+      business.customMonthlyPrice ? decimalToNumber(business.customMonthlyPrice) : null,
+    );
     let amount = input.amount;
     let interval = input.interval ?? null;
     if (
@@ -478,8 +677,8 @@ export class BillingService {
     if (interval && amount == null) {
       amount =
         interval === 'MONTHLY'
-          ? decimalToNumber(settings.monthlyPrice)
-          : decimalToNumber(settings.yearlyPrice);
+          ? tenantMonthly
+          : Math.round(tenantMonthly * 12 * 100) / 100;
     }
     if (amount == null || amount <= 0) {
       throw new Error('Invoice amount is required');
@@ -586,7 +785,12 @@ export class BillingService {
   async sendPurchaseReceipt(
     businessId: string,
     platformUserId: string,
-    input?: { paymentSubmissionId?: string; note?: string; alertDays?: number },
+    input?: {
+      paymentSubmissionId?: string;
+      note?: string;
+      alertDays?: number;
+      amount?: number;
+    },
   ) {
     const business = await prisma.business.findUnique({ where: { id: businessId } });
     if (!business) throw new BusinessNotFoundError();
@@ -607,10 +811,15 @@ export class BillingService {
     }
 
     const settings = await billingSettingsRepository.getOrCreate();
+    const tenantMonthly = resolveTenantMonthlyPrice(
+      decimalToNumber(settings.monthlyPrice),
+      business.customMonthlyPrice ? decimalToNumber(business.customMonthlyPrice) : null,
+    );
     const amount =
-      business.billingInterval === 'MONTHLY'
-        ? decimalToNumber(settings.monthlyPrice)
-        : decimalToNumber(settings.yearlyPrice);
+      input?.amount ??
+      (business.billingInterval === 'MONTHLY'
+        ? tenantMonthly
+        : Math.round(tenantMonthly * 12 * 100) / 100);
 
     return this.createPurchaseReceipt({
       businessId,

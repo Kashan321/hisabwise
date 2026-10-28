@@ -63,6 +63,16 @@ export class SubscriptionLockedError extends AppError {
   }
 }
 
+export class SubscriptionReadOnlyError extends AppError {
+  constructor() {
+    super(
+      ErrorCodes.SUBSCRIPTION_READ_ONLY,
+      'Your subscription has expired. Your account is read-only until you renew.',
+      403,
+    );
+  }
+}
+
 export class ForbiddenError extends AppError {
   constructor(message = 'Forbidden') {
     super(ErrorCodes.FORBIDDEN, message, 403);

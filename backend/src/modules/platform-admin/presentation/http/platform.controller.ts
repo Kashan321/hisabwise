@@ -6,8 +6,42 @@ import { asyncHandler } from '../../../../shared/http/async-handler';
 import { fail, success } from '../../../../shared/http/api-response';
 import { ErrorCodes } from '../../../../shared/errors/error-codes';
 import { billingService } from '../../../billing/infrastructure/billing.service';
+import { buildPlatformBusinessSubscriptionViews } from '../../../billing/infrastructure/platform-business-subscription.view';
+import { subscriptionRenewalService } from '../../../billing/infrastructure/subscription-renewal.service';
 import { platformSettingsRepository } from '../../infrastructure/platform-settings.repository';
 import { platformAdminModule } from '../../infrastructure/platform-admin.module';
+import { writePlatformAudit } from '../../infrastructure/platform-audit.service';
+import type { BusinessSummary } from '../../domain/repositories/platform-business.repository';
+
+async function withSubscriptionViews<T extends BusinessSummary>(businesses: T[]) {
+  const views = await buildPlatformBusinessSubscriptionViews(
+    businesses.map((b) => ({
+      id: b.id,
+      subscriptionStatus: b.subscriptionStatus,
+      isSuspended: b.isSuspended,
+      isSubscriptionBlocked: b.isSubscriptionBlocked,
+      trialEndsAt: b.trialEndsAt,
+      subscriptionEndsAt: b.subscriptionEndsAt,
+      subscriptionTempAccessUntil: b.subscriptionTempAccessUntil,
+      customMonthlyPrice: b.customMonthlyPrice,
+    })),
+  );
+  return businesses.map((b) => {
+    const view = views.get(b.id);
+    return view
+      ? {
+          ...b,
+          accessPhase: view.accessPhase,
+          periodEndsAt: view.periodEndsAt,
+          daysRemaining: view.daysRemaining,
+          daysExpired: view.daysExpired,
+          hasPendingPayment: view.hasPendingPayment,
+          tempAccessUntil: view.tempAccessUntil,
+          effectiveMonthlyPrice: view.effectiveMonthlyPrice,
+        }
+      : b;
+  });
+}
 
 function setPlatformRefreshCookieOptions(expiresAt: Date) {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -75,7 +109,7 @@ export class PlatformAuthController {
 export class PlatformBusinessController {
   list = asyncHandler(async (_req: Request, res: Response) => {
     const businesses = await platformAdminModule.listBusinesses.execute();
-    return success(res, { businesses });
+    return success(res, { businesses: await withSubscriptionViews(businesses) });
   });
 
   create = asyncHandler(async (req: Request, res: Response) => {
@@ -88,7 +122,19 @@ export class PlatformBusinessController {
 
   get = asyncHandler(async (req: Request, res: Response) => {
     const business = await platformAdminModule.getBusiness.execute(String(req.params.id));
-    return success(res, { business });
+    const [enriched] = await withSubscriptionViews([business]);
+    return success(res, { business: enriched });
+  });
+
+  updateCustomMonthlyPrice = asyncHandler(async (req: Request, res: Response) => {
+    const businessId = String(req.params.id);
+    const business = await platformAdminModule.updateBusinessCustomMonthlyPrice.execute(
+      req.platformContext!.platformUserId,
+      businessId,
+      req.body.customMonthlyPrice,
+    );
+    const [enriched] = await withSubscriptionViews([business]);
+    return success(res, { business: enriched });
   });
 
   updateSubscription = asyncHandler(async (req: Request, res: Response) => {
@@ -217,22 +263,54 @@ export class PlatformBillingController {
   });
 
   approvePayment = asyncHandler(async (req: Request, res: Response) => {
+    const submissionId = String(req.params.id);
     const submission = await billingService.reviewPaymentSubmission(
-      String(req.params.id),
+      submissionId,
       req.platformContext!.platformUserId,
       'approve',
-      req.body.adminNote,
+      {
+        adminNote: req.body.adminNote,
+        durationMonths: req.body.durationMonths,
+        overrideFinalAmount: req.body.overrideFinalAmount,
+      },
     );
+    if (submission) {
+      await writePlatformAudit({
+        platformUserId: req.platformContext!.platformUserId,
+        action: 'subscription.payment.approved',
+        targetType: 'payment_submission',
+        targetId: submissionId,
+        metadata: {
+          businessId: submission.businessId,
+          durationMonths: submission.durationMonths,
+          amount: Number(submission.amount.toString()),
+          adminAdjustments: {
+            durationMonths: req.body.durationMonths,
+            overrideFinalAmount: req.body.overrideFinalAmount,
+          },
+        },
+      });
+    }
     return success(res, { submission });
   });
 
   rejectPayment = asyncHandler(async (req: Request, res: Response) => {
+    const submissionId = String(req.params.id);
     const submission = await billingService.reviewPaymentSubmission(
-      String(req.params.id),
+      submissionId,
       req.platformContext!.platformUserId,
       'reject',
-      req.body.adminNote,
+      { adminNote: req.body.adminNote },
     );
+    if (submission) {
+      await writePlatformAudit({
+        platformUserId: req.platformContext!.platformUserId,
+        action: 'subscription.payment.rejected',
+        targetType: 'payment_submission',
+        targetId: submissionId,
+        metadata: { businessId: submission.businessId },
+      });
+    }
     return success(res, { submission });
   });
 
@@ -242,6 +320,53 @@ export class PlatformBillingController {
       req.body.trialDays,
     );
     return success(res, { business });
+  });
+
+  extendAccess = asyncHandler(async (req: Request, res: Response) => {
+    const businessId = String(req.params.id);
+    const business = await billingService.extendAccessDays(businessId, req.body.days);
+    await writePlatformAudit({
+      platformUserId: req.platformContext!.platformUserId,
+      action: 'subscription.access.extended',
+      targetType: 'business',
+      targetId: businessId,
+      metadata: { days: req.body.days },
+    });
+    return success(res, { business });
+  });
+
+  renewSubscription = asyncHandler(async (req: Request, res: Response) => {
+    const businessId = String(req.params.id);
+    const result = await subscriptionRenewalService.adminRenew(businessId, {
+      ...req.body,
+      createdById: req.platformContext!.platformUserId,
+    });
+    if (!result.duplicate) {
+      await writePlatformAudit({
+        platformUserId: req.platformContext!.platformUserId,
+        action: 'subscription.renewed',
+        targetType: 'business',
+        targetId: businessId,
+        metadata: {
+          renewalId: result.renewal.id,
+          durationMonths: req.body.durationMonths,
+          finalAmount: Number(result.renewal.finalAmount.toString()),
+          idempotencyKey: req.body.idempotencyKey,
+        },
+      });
+      if (req.body.sendInvoice) {
+        await billingService.sendPurchaseReceipt(businessId, req.platformContext!.platformUserId, {
+          amount: Number(result.renewal.finalAmount.toString()),
+          note: req.body.note?.trim() || undefined,
+        });
+      }
+    }
+    return success(res, result, 201);
+  });
+
+  listSubscriptionRenewals = asyncHandler(async (req: Request, res: Response) => {
+    const renewals = await billingService.listSubscriptionRenewals(String(req.params.id));
+    return success(res, { renewals });
   });
 
   sendSubscriptionInvoice = asyncHandler(async (req: Request, res: Response) => {

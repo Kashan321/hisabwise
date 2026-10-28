@@ -1,17 +1,36 @@
 import { SubscriptionStatus } from '@prisma/client';
+import { addDays, computeRenewalPeriodEnd, startOfDayInTimeZone } from './subscription-period';
 
 export type SubscriptionBusiness = {
   subscriptionStatus: SubscriptionStatus;
   trialEndsAt: Date | null;
   subscriptionEndsAt: Date | null;
   isSubscriptionBlocked?: boolean;
+  isSuspended?: boolean;
+  subscriptionTempAccessUntil?: Date | null;
 };
 
 export type SubscriptionAccessContext = SubscriptionBusiness & {
   hasPendingPayment?: boolean;
 };
 
+export type SubscriptionLifecycleSettings = {
+  gracePeriodDays: number;
+  readOnlyPeriodDays: number;
+  timeZone?: string;
+};
+
+export type SubscriptionAccessPhase =
+  | 'active'
+  | 'trial'
+  | 'grace'
+  | 'read_only'
+  | 'locked'
+  | 'pending_verification'
+  | 'suspended';
+
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const TEMP_ACCESS_HOURS = 48;
 
 export function daysUntil(date: Date | null | undefined, now = new Date()): number | null {
   if (!date) return null;
@@ -44,52 +63,112 @@ export function getSubscriptionDaysRemaining(
   return daysUntil(getAccessPeriodEnd(business, now), now);
 }
 
+function hasValidTempAccess(business: SubscriptionBusiness, now: Date): boolean {
+  return Boolean(
+    business.subscriptionTempAccessUntil && business.subscriptionTempAccessUntil > now,
+  );
+}
+
+function isPeriodEnded(periodEnd: Date | null, now: Date, timeZone: string): boolean {
+  if (!periodEnd) return false;
+  const endDay = startOfDayInTimeZone(periodEnd, timeZone);
+  const today = startOfDayInTimeZone(now, timeZone);
+  return today.getTime() >= endDay.getTime();
+}
+
+export function resolveSubscriptionAccessPhase(
+  business: SubscriptionAccessContext,
+  settings: SubscriptionLifecycleSettings,
+  now = new Date(),
+): SubscriptionAccessPhase {
+  if (business.isSuspended) {
+    return 'suspended';
+  }
+
+  if (business.isSubscriptionBlocked) {
+    return 'locked';
+  }
+
+  const timeZone = settings.timeZone ?? 'Asia/Karachi';
+  const periodEnd = getAccessPeriodEnd(business, now);
+  const periodEnded = isPeriodEnded(periodEnd, now, timeZone);
+
+  if (hasValidTempAccess(business, now)) {
+    return 'pending_verification';
+  }
+
+  if (
+    business.subscriptionStatus === 'ACTIVE' ||
+    business.subscriptionStatus === 'TRIAL'
+  ) {
+    if (!periodEnded) {
+      return business.subscriptionStatus === 'TRIAL' ? 'trial' : 'active';
+    }
+
+    const graceEnd = periodEnd
+      ? addDays(startOfDayInTimeZone(periodEnd, timeZone), settings.gracePeriodDays)
+      : null;
+    if (graceEnd && now < graceEnd) {
+      return 'grace';
+    }
+
+    const readOnlyEnd = graceEnd
+      ? addDays(graceEnd, settings.readOnlyPeriodDays)
+      : null;
+    if (readOnlyEnd && now < readOnlyEnd) {
+      return 'read_only';
+    }
+
+    return 'locked';
+  }
+
+  return 'locked';
+}
+
+export function subscriptionAllowsRead(
+  phase: SubscriptionAccessPhase,
+  isBillingRoute: boolean,
+): boolean {
+  if (phase === 'locked') {
+    return isBillingRoute;
+  }
+  return phase !== 'suspended';
+}
+
+export function subscriptionAllowsWrite(phase: SubscriptionAccessPhase): boolean {
+  return (
+    phase === 'active' ||
+    phase === 'trial' ||
+    phase === 'grace' ||
+    phase === 'pending_verification'
+  );
+}
+
+/** @deprecated Use resolveSubscriptionAccessPhase + subscriptionAllowsWrite */
 export function isSubscriptionLocked(
   business: SubscriptionAccessContext,
   now = new Date(),
+  settings: SubscriptionLifecycleSettings = { gracePeriodDays: 0, readOnlyPeriodDays: 0 },
 ): boolean {
-  if (business.isSubscriptionBlocked) {
-    return true;
-  }
-
-  if (business.subscriptionStatus === 'ACTIVE') {
-    if (business.subscriptionEndsAt && business.subscriptionEndsAt < now) {
-      return true;
-    }
-    return false;
-  }
-
-  if (business.subscriptionStatus === 'TRIAL') {
-    if (business.hasPendingPayment) {
-      return false;
-    }
-
-    if (business.subscriptionEndsAt && business.subscriptionEndsAt > now) {
-      return false;
-    }
-
-    if (business.trialEndsAt && business.trialEndsAt < now) {
-      return true;
-    }
-
-    return false;
-  }
-
-  return true;
+  const phase = resolveSubscriptionAccessPhase(business, settings, now);
+  return phase === 'locked' || phase === 'suspended';
 }
 
-export function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
+export function addDaysLegacy(date: Date, days: number): Date {
+  return addDays(date, days);
 }
+
+export { addDays };
 
 export function addIntervalEnd(from: Date, interval: 'MONTHLY' | 'YEARLY'): Date {
-  const result = new Date(from);
-  if (interval === 'MONTHLY') {
-    result.setMonth(result.getMonth() + 1);
-  } else {
-    result.setFullYear(result.getFullYear() + 1);
-  }
-  return result;
+  const months = interval === 'YEARLY' ? 12 : 1;
+  return computeRenewalPeriodEnd(from, months);
+}
+
+export function tempAccessDurationMs(): number {
+  return TEMP_ACCESS_HOURS * 60 * 60 * 1000;
+}
+
+export function computeTempAccessUntil(from: Date): Date {
+  return new Date(from.getTime() + tempAccessDurationMs());
 }

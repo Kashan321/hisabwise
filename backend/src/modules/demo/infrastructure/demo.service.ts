@@ -53,13 +53,9 @@ export class DemoService {
   async getPublicPricing() {
     const settings = await billingSettingsRepository.getOrCreate();
     const monthlyPrice = decimalToNumber(settings.monthlyPrice);
-    const yearlyPrice = decimalToNumber(settings.yearlyPrice);
-    const yearlyMonthlyEquivalent =
-      yearlyPrice > 0 ? Math.round((yearlyPrice / 12) * 100) / 100 : 0;
-    const savingsPercent =
-      monthlyPrice > 0 && yearlyPrice > 0
-        ? Math.max(0, Math.round((1 - yearlyPrice / (monthlyPrice * 12)) * 100))
-        : 0;
+    const yearlyPrice = Math.round(monthlyPrice * 12 * 100) / 100;
+    const yearlyMonthlyEquivalent = monthlyPrice;
+    const savingsPercent = 0;
 
     return {
       defaultTrialDays: settings.defaultTrialDays,

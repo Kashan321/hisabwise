@@ -83,10 +83,9 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
       quickWeightsG: item.quickWeightsG?.length
         ? item.quickWeightsG.join(',')
         : '250,500,750,1000',
-      priceRounding:
-        item.priceRounding === 1 || item.priceRounding === 5 || item.priceRounding === 10
-          ? String(item.priceRounding)
-          : ('' as const),
+      priceRounding: (item.priceRounding === 1 || item.priceRounding === 5 || item.priceRounding === 10
+        ? String(item.priceRounding)
+        : '') as '' | '1' | '5' | '10',
     };
   }
 

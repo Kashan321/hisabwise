@@ -136,6 +136,9 @@ model Business {
   trialEndsAt        DateTime?          @map("trial_ends_at")
   subscriptionEndsAt DateTime?          @map("subscription_ends_at")
   billingInterval    BillingInterval?   @map("billing_interval")
+  customMonthlyPrice Decimal?           @map("custom_monthly_price") @db.Decimal(10, 2)
+  subscriptionTempAccessUntil DateTime? @map("subscription_temp_access_until")
+  subscriptionTempAccessForPeriodEnd DateTime? @map("subscription_temp_access_for_period_end")
   allowNegativeInventory Boolean        @default(false) @map("allow_negative_inventory")
   orderTicketPrefix      String         @default("TKT") @map("order_ticket_prefix")
   orderTicketResetDaily  Boolean        @default(true) @map("order_ticket_reset_daily")
@@ -172,6 +175,7 @@ model Business {
   loyaltyTransactions LoyaltyTransaction[]
   paymentSubmissions PaymentSubmission[]
   subscriptionInvoices SubscriptionInvoice[]
+  subscriptionRenewals SubscriptionRenewal[]
   cashShifts              CashShift[]
   cashDrawerMovements     CashDrawerMovement[]
   cashSettlementAccounts  CashSettlementAccount[]
@@ -1098,6 +1102,7 @@ model PlatformUser {
   subscriptionInvoicesSent SubscriptionInvoice[]
   reviewedFeedbackTickets FeedbackTicket[]
   reviewedDemoRequests DemoRequest[]
+  subscriptionRenewalsCreated SubscriptionRenewal[]
 
   @@map("platform_users")
 }
@@ -1146,6 +1151,8 @@ model PlatformBillingSettings {
   iban                String?
   swiftCode           String?  @map("swift_code")
   paymentInstructions String?  @map("payment_instructions") @db.Text
+  gracePeriodDays     Int      @default(2) @map("grace_period_days")
+  readOnlyPeriodDays  Int      @default(7) @map("read_only_period_days")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("platform_billing_settings")
@@ -1232,8 +1239,15 @@ model PaymentSubmission {
   id            String                  @id @default(uuid()) @db.Uuid
   businessId    String                  @map("business_id") @db.Uuid
   interval      BillingInterval
+  durationMonths Int                    @default(1) @map("duration_months")
   amount        Decimal                 @db.Decimal(10, 2)
+  expectedAmount Decimal?               @map("expected_amount") @db.Decimal(10, 2)
   proofImageUrl String                  @map("proof_image_url")
+  transactionReference String?          @map("transaction_reference")
+  renewTargetPeriodEnd DateTime?        @map("renew_target_period_end")
+  tempAccessGranted Boolean             @default(false) @map("temp_access_granted")
+  tempAccessUntil DateTime?             @map("temp_access_until")
+  tempAccessSkipped Boolean             @default(false) @map("temp_access_skipped")
   status        PaymentSubmissionStatus @default(PENDING)
   adminNote     String?                 @map("admin_note") @db.Text
   reviewedById  String?                 @map("reviewed_by_id") @db.Uuid
@@ -1244,10 +1258,42 @@ model PaymentSubmission {
   business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
   reviewedBy      PlatformUser?        @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
   purchaseReceipt SubscriptionInvoice?
+  subscriptionRenewal SubscriptionRenewal?
 
   @@index([businessId])
   @@index([status])
   @@map("payment_submissions")
+}
+
+model SubscriptionRenewal {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessId           String   @map("business_id") @db.Uuid
+  source               String
+  paymentSubmissionId  String?  @unique @map("payment_submission_id") @db.Uuid
+  durationMonths       Int      @map("duration_months")
+  periodStartsAt       DateTime @map("period_starts_at")
+  periodEndsAt         DateTime @map("period_ends_at")
+  baseAmount           Decimal  @map("base_amount") @db.Decimal(10, 2)
+  discountType         String?  @map("discount_type")
+  discountValue        Decimal? @map("discount_value") @db.Decimal(10, 2)
+  overrideAmount       Decimal? @map("override_amount") @db.Decimal(10, 2)
+  finalAmount          Decimal  @map("final_amount") @db.Decimal(10, 2)
+  currency             String
+  paymentMethod        String?  @map("payment_method")
+  paymentReference     String?  @map("payment_reference")
+  note                 String?  @db.Text
+  createdById          String?  @map("created_by_id") @db.Uuid
+  idempotencyKey       String?  @unique @map("idempotency_key")
+  subscriptionInvoiceId String? @map("subscription_invoice_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  business            Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  paymentSubmission   PaymentSubmission?  @relation(fields: [paymentSubmissionId], references: [id], onDelete: SetNull)
+  createdBy           PlatformUser?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  subscriptionInvoice SubscriptionInvoice? @relation(fields: [subscriptionInvoiceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt(sort: Desc)])
+  @@map("subscription_renewals")
 }
 
 model SubscriptionInvoice {
@@ -1272,6 +1318,7 @@ model SubscriptionInvoice {
   business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sentBy            PlatformUser?      @relation(fields: [sentById], references: [id], onDelete: SetNull)
   paymentSubmission PaymentSubmission? @relation(fields: [paymentSubmissionId], references: [id], onDelete: SetNull)
+  subscriptionRenewals SubscriptionRenewal[]
 
   @@unique([businessId, invoiceNumber])
   @@index([businessId, status, alertEndsAt])

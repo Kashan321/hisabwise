@@ -28,9 +28,12 @@ import {
 import {
   dismissSubscriptionInvoiceSchema,
   reviewPaymentSchema,
+  adminRenewSubscriptionSchema,
+  extendAccessDaysSchema,
   sendPurchaseReceiptSchema,
   sendSubscriptionInvoiceSchema,
   setTrialDaysSchema,
+  updateBusinessCustomMonthlyPriceSchema,
   updateBillingSettingsSchema,
 } from '../../../billing/presentation/http/billing.validators';
 import { platformFeedbackController } from '../../../feedback/presentation/http/feedback.controller';
@@ -110,6 +113,13 @@ platformBusinessRouter.patch(
   requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
   validateBody(updateBusinessSubscriptionSchema),
   platformBusinessController.updateSubscription,
+);
+platformBusinessRouter.patch(
+  '/:id/custom-monthly-price',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(updateBusinessCustomMonthlyPriceSchema),
+  platformBusinessController.updateCustomMonthlyPrice,
 );
 platformBusinessRouter.post(
   '/:id/suspend',
@@ -241,6 +251,26 @@ platformBillingRouter.patch(
   requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
   validateBody(setTrialDaysSchema),
   platformBillingController.setTrialDays,
+);
+platformBillingRouter.post(
+  '/businesses/:id/extend-access',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(extendAccessDaysSchema),
+  platformBillingController.extendAccess,
+);
+platformBillingRouter.post(
+  '/businesses/:id/renew',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(adminRenewSubscriptionSchema),
+  platformBillingController.renewSubscription,
+);
+platformBillingRouter.get(
+  '/businesses/:id/renewals',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  platformBillingController.listSubscriptionRenewals,
 );
 platformBillingRouter.post(
   '/businesses/:id/subscription-invoice',

@@ -68,11 +68,27 @@ function SettingsForm({
           onChange={(e) => setForm((f) => ({ ...f, monthlyPrice: Number(e.target.value) }))}
         />
         <Input
-          label="Yearly price"
+          label="Yearly price (legacy display)"
           type="number"
           min={0}
           value={String(form.yearlyPrice)}
           onChange={(e) => setForm((f) => ({ ...f, yearlyPrice: Number(e.target.value) }))}
+        />
+        <Input
+          label="Grace period (days after expiry)"
+          type="number"
+          min={0}
+          max={30}
+          value={String(form.gracePeriodDays ?? 2)}
+          onChange={(e) => setForm((f) => ({ ...f, gracePeriodDays: Number(e.target.value) }))}
+        />
+        <Input
+          label="Read-only period (days after grace)"
+          type="number"
+          min={0}
+          max={90}
+          value={String(form.readOnlyPeriodDays ?? 7)}
+          onChange={(e) => setForm((f) => ({ ...f, readOnlyPeriodDays: Number(e.target.value) }))}
         />
         <Input
           label="Bank name"
@@ -142,9 +158,29 @@ function PaymentReviewCard({
             {submission.business?.name ?? submission.businessId}
           </p>
           <p className="font-caption text-on-surface-variant">
-            {submission.interval} · {submission.amount} ·{' '}
+            {submission.durationMonths ?? submission.interval} mo · {submission.amount}
+            {submission.expectedAmount != null ? ` (expected ${submission.expectedAmount})` : ''} ·{' '}
             {new Date(submission.createdAt).toLocaleString()}
           </p>
+          {submission.transactionReference && (
+            <p className="font-caption text-on-surface-variant">
+              Txn ref: {submission.transactionReference}
+            </p>
+          )}
+          {submission.tempAccessGranted && submission.tempAccessUntil && (
+            <p
+              className={`font-caption ${
+                Date.now() - new Date(submission.createdAt).getTime() > 48 * 3600000
+                  ? 'text-error'
+                  : 'text-secondary'
+              }`}
+            >
+              Temp access until {new Date(submission.tempAccessUntil).toLocaleString()}
+              {Date.now() - new Date(submission.createdAt).getTime() > 48 * 3600000
+                ? ' · pending over 48h'
+                : ''}
+            </p>
+          )}
         </div>
         <span
           className={`font-caption uppercase px-2 py-1 rounded-full ${
@@ -215,6 +251,8 @@ export default function PlatformBillingPage() {
   const sendPurchaseReceipt = useSendPurchaseReceipt();
   const [reviewTarget, setReviewTarget] = useState<PaymentSubmission | null>(null);
   const [adminNote, setAdminNote] = useState('');
+  const [reviewDurationMonths, setReviewDurationMonths] = useState('1');
+  const [reviewOverrideAmount, setReviewOverrideAmount] = useState('');
   const [invoiceSendingId, setInvoiceSendingId] = useState<string | null>(null);
 
   const invoiceTenantOptions = useMemo(() => {
@@ -244,10 +282,22 @@ export default function PlatformBillingPage() {
     }
   }
 
+  function openReview(submission: PaymentSubmission) {
+    setReviewTarget(submission);
+    setReviewDurationMonths(String(submission.durationMonths ?? (submission.interval === 'YEARLY' ? 12 : 1)));
+    setReviewOverrideAmount(String(submission.amount));
+    setAdminNote('');
+  }
+
   async function handleApprove() {
     if (!reviewTarget) return;
     try {
-      await approve.mutateAsync({ id: reviewTarget.id, adminNote: adminNote || undefined });
+      await approve.mutateAsync({
+        id: reviewTarget.id,
+        adminNote: adminNote || undefined,
+        durationMonths: Number(reviewDurationMonths) || undefined,
+        overrideFinalAmount: reviewOverrideAmount ? Number(reviewOverrideAmount) : undefined,
+      });
       toast.success('Payment approved — subscription activated and purchase invoice sent');
       setReviewTarget(null);
       setAdminNote('');
@@ -328,7 +378,7 @@ export default function PlatformBillingPage() {
             <PaymentReviewCard
               key={s.id}
               submission={s}
-              onReview={setReviewTarget}
+              onReview={openReview}
               onSendInvoice={handleSendPurchaseInvoiceForSubmission}
               sendingInvoice={invoiceSendingId === s.id}
             />
@@ -347,8 +397,25 @@ export default function PlatformBillingPage() {
         {reviewTarget && (
           <div className="space-y-4">
             <p className="font-body-base text-on-surface-variant">
-              {reviewTarget.business?.name} — {reviewTarget.interval} plan — {reviewTarget.amount}
+              {reviewTarget.business?.name} — submitted {reviewTarget.amount}
+              {reviewTarget.expectedAmount != null ? ` (expected ${reviewTarget.expectedAmount})` : ''}
             </p>
+            <SelectField
+              label="Renewal duration (months)"
+              value={reviewDurationMonths}
+              onChange={(e) => setReviewDurationMonths(e.target.value)}
+              options={[1, 3, 6, 9, 12].map((m) => ({
+                value: String(m),
+                label: `${m} month${m > 1 ? 's' : ''}`,
+              }))}
+            />
+            <Input
+              label="Final amount to apply"
+              type="number"
+              min={0}
+              value={reviewOverrideAmount}
+              onChange={(e) => setReviewOverrideAmount(e.target.value)}
+            />
             <Textarea
               label="Admin note (optional)"
               value={adminNote}

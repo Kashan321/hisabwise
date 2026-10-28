@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MAX_WEIGHT_G } from '../../../../shared/pricing/weight-line-pricing';
-import { nullableStorageReferenceSchema, storageReferenceSchema } from '../../../../shared/files/storage-reference-schema';
+import { nullableStorageReferenceSchema } from '../../../../shared/files/storage-reference-schema';
 
 const priceSchema = z
   .string()

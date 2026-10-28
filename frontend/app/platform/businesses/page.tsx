@@ -24,7 +24,11 @@ import {
   adminSubscriptionAccessLabel,
   getSubscriptionDaysRemaining,
   getSubscriptionPeriodEnd,
+  platformAccessPhaseBadge,
+  platformBusinessMatchesFilter,
+  type PlatformSubscriptionFilter,
 } from '@/lib/subscription-display';
+import { RenewSubscriptionPanel } from '@/components/platform/renew-subscription-panel';
 import {
   ThemeEditor,
   isThemeValid,
@@ -34,7 +38,7 @@ import {
 import { DEFAULT_BUSINESS_THEME } from '@/lib/theme/theme-css';
 import { SendSubscriptionInvoicePanel } from '@/components/platform/send-subscription-invoice-panel';
 
-type StatusFilter = 'all' | 'active' | 'trial' | 'suspended';
+type StatusFilter = PlatformSubscriptionFilter;
 
 const BUSINESS_ICONS = ['coffee', 'bakery_dining', 'restaurant', 'local_cafe'] as const;
 
@@ -53,13 +57,14 @@ function businessIcon(name: string, suspended: boolean) {
   return suspended ? 'do_not_disturb_on' : BUSINESS_ICONS[idx];
 }
 
-function businessStatus(b: PlatformBusiness): StatusFilter {
+function businessStatus(b: PlatformBusiness): 'suspended' | 'trial' | 'active' | 'expired' {
   if (b.isSuspended) return 'suspended';
+  if (platformAccessPhaseBadge(b.accessPhase) === 'expired') return 'expired';
   if (b.subscriptionStatus === 'TRIAL') return 'trial';
   return 'active';
 }
 
-function StatusBadge({ status }: { status: StatusFilter }) {
+function StatusBadge({ status }: { status: ReturnType<typeof businessStatus> }) {
   if (status === 'suspended') {
     return (
       <span className="px-2 py-1 rounded-md text-[11px] font-bold uppercase bg-error-container text-on-error-container flex items-center w-fit gap-1">
@@ -72,6 +77,13 @@ function StatusBadge({ status }: { status: StatusFilter }) {
       <span className="px-2 py-1 rounded-md text-[11px] font-bold uppercase bg-secondary-fixed/30 text-on-secondary-fixed-variant flex items-center w-fit gap-1">
         <span className="w-1.5 h-1.5 rounded-full bg-on-secondary-fixed-variant animate-pulse" />
         Trial
+      </span>
+    );
+  }
+  if (status === 'expired') {
+    return (
+      <span className="px-2 py-1 rounded-md text-[11px] font-bold uppercase bg-error-container text-on-error-container flex items-center w-fit gap-1">
+        Expired
       </span>
     );
   }
@@ -124,8 +136,7 @@ export default function PlatformBusinessesPage() {
   const { data: detailBusiness, isLoading: detailLoading } = usePlatformBusiness(detailId);
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return businesses;
-    return businesses.filter((b) => businessStatus(b) === filter);
+    return businesses.filter((b) => platformBusinessMatchesFilter(b, filter));
   }, [businesses, filter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -290,7 +301,19 @@ export default function PlatformBusinessesPage() {
       <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl overflow-hidden flex flex-col flex-1 shadow-sm min-h-[480px]">
         <div className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-lowest/50">
           <div className="flex gap-1 border border-outline-variant/30 rounded-lg p-0.5 bg-surface-container-low">
-            {(['all', 'active', 'trial', 'suspended'] as const).map((tab) => (
+            {(
+              [
+                'all',
+                'active',
+                'trial',
+                'expiring',
+                'expired',
+                'grace',
+                'read_only',
+                'locked',
+                'suspended',
+              ] as const
+            ).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -298,13 +321,17 @@ export default function PlatformBusinessesPage() {
                   setFilter(tab);
                   setPage(0);
                 }}
-                className={`px-3 py-1 text-caption rounded-md transition-colors cursor-pointer capitalize ${
+                className={`px-3 py-1 text-caption rounded-md transition-colors cursor-pointer capitalize whitespace-nowrap ${
                   filter === tab
                     ? 'font-body-emphasis bg-white shadow-sm text-primary'
                     : 'font-body-base text-on-surface-variant hover:text-primary'
                 }`}
               >
-                {tab === 'all' ? 'All' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'all'
+                  ? 'All'
+                  : tab === 'read_only'
+                    ? 'Read-only'
+                    : tab.replace(/_/g, ' ')}
               </button>
             ))}
           </div>
@@ -671,9 +698,10 @@ export default function PlatformBusinessesPage() {
                 </div>
               )}
             </div>
+            <RenewSubscriptionPanel business={detailBusiness} />
             <div className="flex gap-3 items-end">
               <Input
-                label="Extend / reset trial (days)"
+                label="Reset trial period (days)"
                 type="number"
                 min={1}
                 max={365}
