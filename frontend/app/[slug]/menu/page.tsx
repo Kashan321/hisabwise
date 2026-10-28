@@ -22,6 +22,11 @@ import { getItemDisplayPrice } from '@/lib/cart-line';
 import { formatItemProfit } from '@/lib/menu-item-profit';
 import { useToast } from '@/lib/toast';
 import type { MenuItem } from '@/lib/api/types';
+import {
+  PRICING_UNIT_OPTIONS,
+  pricePerKgFromUnitPrice,
+} from '@/lib/pricing/weight-line-pricing';
+import { menuItemIsByWeight } from '@/lib/order-item-display';
 
 const ALL_CATEGORIES_ID = '__all__';
 
@@ -56,7 +61,64 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
     basePrice: '',
     imageUrl: null as string | null,
     categoryId: '',
+    pricingType: 'fixed' as 'fixed' | 'by_weight',
+    pricePerUnit: '',
+    pricingUnitG: 1000,
+    minWeightG: '',
+    weightStepG: '',
+    quickWeightsG: '250,500,750,1000',
+    priceRounding: '' as '' | '1' | '5' | '10',
   });
+
+  function weightFieldsFromItem(item: MenuItem) {
+    const unitG = item.pricingUnitG ?? 1000;
+    const perKg = Number(item.pricePerKg ?? item.price);
+    const perUnit = (perKg * unitG) / 1000;
+    return {
+      pricingType: menuItemIsByWeight(item) ? ('by_weight' as const) : ('fixed' as const),
+      pricePerUnit: menuItemIsByWeight(item) ? String(perUnit) : '',
+      pricingUnitG: unitG,
+      minWeightG: item.minWeightG != null ? String(item.minWeightG) : '',
+      weightStepG: item.weightStepG != null ? String(item.weightStepG) : '',
+      quickWeightsG: item.quickWeightsG?.length
+        ? item.quickWeightsG.join(',')
+        : '250,500,750,1000',
+      priceRounding:
+        item.priceRounding === 1 || item.priceRounding === 5 || item.priceRounding === 10
+          ? String(item.priceRounding)
+          : ('' as const),
+    };
+  }
+
+  function buildItemApiPayload() {
+    const quickWeightsG = itemForm.quickWeightsG
+      .split(/[,;\s]+/)
+      .map((v) => Number(v.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const shared = {
+      name: itemForm.name.trim(),
+      description: itemForm.description.trim() || undefined,
+      basePrice: itemForm.basePrice.trim() ? itemForm.basePrice.trim() : null,
+      imageUrl: itemForm.imageUrl,
+    };
+    if (itemForm.pricingType === 'by_weight') {
+      return {
+        ...shared,
+        pricingType: 'by_weight' as const,
+        pricePerUnit: itemForm.pricePerUnit.trim(),
+        pricingUnitG: itemForm.pricingUnitG,
+        minWeightG: itemForm.minWeightG.trim() ? Number(itemForm.minWeightG) : null,
+        weightStepG: itemForm.weightStepG.trim() ? Number(itemForm.weightStepG) : null,
+        quickWeightsG: quickWeightsG.length ? quickWeightsG : null,
+        priceRounding: itemForm.priceRounding ? Number(itemForm.priceRounding) : null,
+      };
+    }
+    return {
+      ...shared,
+      pricingType: 'fixed' as const,
+      price: itemForm.price.trim(),
+    };
+  }
   const [error, setError] = useState('');
   const [importModalOpen, setImportModalOpen] = useState(false);
 
@@ -96,6 +158,13 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
       basePrice: '',
       imageUrl: null,
       categoryId: isAllCategoriesView ? categories[0]?.id ?? '' : activeCategoryId ?? '',
+      pricingType: 'fixed',
+      pricePerUnit: '',
+      pricingUnitG: 1000,
+      minWeightG: '',
+      weightStepG: '',
+      quickWeightsG: '250,500,750,1000',
+      priceRounding: '',
     });
     setError('');
     setItemDrawer('create');
@@ -110,6 +179,7 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
       basePrice: item.basePrice != null ? String(item.basePrice) : '',
       imageUrl: item.imageUrl ?? null,
       categoryId: item.categoryId,
+      ...weightFieldsFromItem(item),
     });
     setError('');
     setItemDrawer('edit');
@@ -135,14 +205,11 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
     if (!targetCategoryId && itemDrawer === 'create') return;
     setError('');
     try {
+      const payload = buildItemApiPayload();
       if (itemDrawer === 'edit' && editingItem) {
         await updateItem.mutateAsync({
           id: editingItem.id,
-          name: itemForm.name.trim(),
-          description: itemForm.description.trim() || undefined,
-          price: itemForm.price.trim(),
-          basePrice: itemForm.basePrice.trim() ? itemForm.basePrice.trim() : null,
-          imageUrl: itemForm.imageUrl,
+          ...payload,
           ...(itemForm.categoryId && itemForm.categoryId !== editingItem.categoryId
             ? { categoryId: itemForm.categoryId }
             : {}),
@@ -151,11 +218,7 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
       } else {
         await createItem.mutateAsync({
           categoryId: targetCategoryId!,
-          name: itemForm.name.trim(),
-          description: itemForm.description.trim() || undefined,
-          price: itemForm.price.trim(),
-          ...(itemForm.basePrice.trim() ? { basePrice: itemForm.basePrice.trim() } : {}),
-          ...(itemForm.imageUrl ? { imageUrl: itemForm.imageUrl } : {}),
+          ...payload,
         });
         toast.success('Menu item added');
       }
@@ -609,30 +672,137 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
               ...categories.map((cat) => ({ value: cat.id, label: cat.name })),
             ]}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
-              label={`Sale price (${currency})`}
-              type="number"
-              min={0}
-              step="0.01"
-              value={itemForm.price}
-              onChange={(e) => setItemForm((f) => ({ ...f, price: e.target.value }))}
-              placeholder="450"
-              required
-              hint="What the customer pays"
-            />
-            <Input
-              label={`Base price (${currency})`}
-              type="number"
-              min={0}
-              step="0.01"
-              value={itemForm.basePrice}
-              onChange={(e) => setItemForm((f) => ({ ...f, basePrice: e.target.value }))}
-              placeholder="280"
-              hint="Your cost — used to estimate profit"
-            />
-          </div>
-          {(editingItemLive?.variants?.length ?? 0) === 0 &&
+          <SelectField
+            label="Pricing type"
+            value={itemForm.pricingType}
+            onChange={(e) =>
+              setItemForm((f) => ({
+                ...f,
+                pricingType: e.target.value as 'fixed' | 'by_weight',
+              }))
+            }
+            options={[
+              { value: 'fixed', label: 'Fixed price (sizes/variants)' },
+              { value: 'by_weight', label: 'Sell by weight' },
+            ]}
+          />
+
+          {itemForm.pricingType === 'fixed' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label={`Sale price (${currency})`}
+                type="number"
+                min={0}
+                step="0.01"
+                value={itemForm.price}
+                onChange={(e) => setItemForm((f) => ({ ...f, price: e.target.value }))}
+                placeholder="450"
+                required
+                hint="What the customer pays"
+              />
+              <Input
+                label={`Base price (${currency})`}
+                type="number"
+                min={0}
+                step="0.01"
+                value={itemForm.basePrice}
+                onChange={(e) => setItemForm((f) => ({ ...f, basePrice: e.target.value }))}
+                placeholder="280"
+                hint="Your cost — used to estimate profit"
+              />
+            </div>
+          ) : (
+            <div className="space-y-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <p className="font-caption text-on-surface-variant">
+                Cashiers enter weight at the till; price is calculated from your per-kg rate.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Price per unit"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={itemForm.pricePerUnit}
+                  onChange={(e) => setItemForm((f) => ({ ...f, pricePerUnit: e.target.value }))}
+                  required
+                  hint="Amount for the pricing unit below"
+                />
+                <SelectField
+                  label="Pricing unit"
+                  value={String(itemForm.pricingUnitG)}
+                  onChange={(e) =>
+                    setItemForm((f) => ({ ...f, pricingUnitG: Number(e.target.value) }))
+                  }
+                  options={PRICING_UNIT_OPTIONS.map((o) => ({
+                    value: String(o.grams),
+                    label: o.label,
+                  }))}
+                />
+              </div>
+              {itemForm.pricePerUnit.trim() && (
+                <p className="font-caption text-primary font-semibold">
+                  Stored as{' '}
+                  {formatMoney(
+                    pricePerKgFromUnitPrice(
+                      Number(itemForm.pricePerUnit),
+                      itemForm.pricingUnitG,
+                    ),
+                  )}{' '}
+                  per kg
+                </p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Minimum weight (grams)"
+                  type="number"
+                  min={1}
+                  value={itemForm.minWeightG}
+                  onChange={(e) => setItemForm((f) => ({ ...f, minWeightG: e.target.value }))}
+                  placeholder="100"
+                />
+                <Input
+                  label="Weight step (grams)"
+                  type="number"
+                  min={1}
+                  value={itemForm.weightStepG}
+                  onChange={(e) => setItemForm((f) => ({ ...f, weightStepG: e.target.value }))}
+                  placeholder="50"
+                />
+              </div>
+              <Input
+                label="Quick weight buttons (grams, comma-separated)"
+                value={itemForm.quickWeightsG}
+                onChange={(e) => setItemForm((f) => ({ ...f, quickWeightsG: e.target.value }))}
+                placeholder="250,500,750,1000"
+              />
+              <SelectField
+                label="Price rounding"
+                value={itemForm.priceRounding}
+                onChange={(e) =>
+                  setItemForm((f) => ({
+                    ...f,
+                    priceRounding: e.target.value as '' | '1' | '5' | '10',
+                  }))
+                }
+                options={[
+                  { value: '', label: 'None' },
+                  { value: '1', label: 'Nearest Rs 1' },
+                  { value: '5', label: 'Nearest Rs 5' },
+                  { value: '10', label: 'Nearest Rs 10' },
+                ]}
+              />
+              <Input
+                label={`Base price (${currency})`}
+                type="number"
+                min={0}
+                step="0.01"
+                value={itemForm.basePrice}
+                onChange={(e) => setItemForm((f) => ({ ...f, basePrice: e.target.value }))}
+                hint="Optional cost per sold unit for profit reports"
+              />
+            </div>
+          )}
+          {itemForm.pricingType === 'fixed' && (editingItemLive?.variants?.length ?? 0) === 0 &&
             (() => {
               const profitInfo = formatItemProfit(itemForm.price, itemForm.basePrice);
               if (!profitInfo) return null;
@@ -642,7 +812,7 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
                 </p>
               );
             })()}
-          {(editingItemLive?.variants?.length ?? 0) > 0 && (
+          {itemForm.pricingType === 'fixed' && (editingItemLive?.variants?.length ?? 0) > 0 && (
             <p className="font-caption text-on-surface-variant rounded-lg bg-surface-container-low px-3 py-2">
               This item has sizes/variants — set sale and base price on each variant in the section below.
             </p>
@@ -677,7 +847,13 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
 
         {itemDrawer === 'edit' && editingItemLive && (
           <div className="mt-8 pt-8 border-t border-outline-variant/10">
-            <MenuItemCustomizationPanel item={editingItemLive} />
+            <MenuItemCustomizationPanel
+              item={{
+                ...editingItemLive,
+                pricingType:
+                  itemForm.pricingType === 'by_weight' ? 'BY_WEIGHT' : editingItemLive.pricingType,
+              }}
+            />
           </div>
         )}
       </Drawer>

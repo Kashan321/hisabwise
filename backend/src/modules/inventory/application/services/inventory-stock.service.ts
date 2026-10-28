@@ -30,6 +30,7 @@ function mapOrderLines(
     menuItemId: string | null;
     variantId: string | null;
     quantity: number;
+    weightG: number | null;
     modifiers: Array<{ modifierOptionId: string | null }>;
   }>,
 ): OrderLineConsumptionInput[] {
@@ -39,6 +40,7 @@ function mapOrderLines(
     menuItemId: item.menuItemId,
     variantId: item.variantId,
     quantity: item.quantity,
+    weightG: item.weightG,
     modifierOptionIds: item.modifiers
       .map((m) => m.modifierOptionId)
       .filter((id): id is string => id != null),

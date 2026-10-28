@@ -14,6 +14,12 @@ import {
 } from '../../domain/errors/order.errors';
 import { OrderPricingPort } from '../../domain/repositories/order.repository';
 import { inventoryStockService } from '../../../inventory/application/services/inventory-stock.service';
+import { normalizePriceRounding } from '../../../menu/application/menu-weight-config';
+import {
+  computeWeightLineBase,
+  computeWeightLineTotal,
+  validateWeightInput,
+} from '../../../../shared/pricing/weight-line-pricing';
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -141,30 +147,59 @@ async function priceItems(
       .filter((link) => link.modifierGroup)
       .map((link) => link.modifierGroup);
 
+    const isByWeight = menuItem.pricingType === 'BY_WEIGHT';
     const hasVariants = menuItem.variants.length > 0;
-
-    if (hasVariants && !line.variantId) {
-      throw new InvalidOrderItemError(`Please select a size/variant for "${menuItem.name}"`);
-    }
-
-    if (!hasVariants && line.variantId) {
-      throw new InvalidOrderItemError(`"${menuItem.name}" does not support variants`);
-    }
 
     let variantId: string | null = null;
     let variantName: string | null = null;
     let variantPrice: number | null = null;
     let unitPrice = Number(menuItem.price);
+    let weightG: number | null = null;
+    let unitPricePerKg: number | null = null;
 
-    if (line.variantId) {
-      const variant = menuItem.variants.find((entry) => entry.id === line.variantId);
-      if (!variant || !variant.isAvailable) {
-        throw new InvalidOrderItemError(`Selected variant is unavailable for "${menuItem.name}"`);
+    if (isByWeight) {
+      if (line.variantId) {
+        throw new InvalidOrderItemError(`"${menuItem.name}" is sold by weight, not by size`);
       }
-      variantId = variant.id;
-      variantName = variant.name;
-      variantPrice = Number(variant.price);
-      unitPrice = variantPrice;
+      if (hasVariants) {
+        throw new InvalidOrderItemError(
+          `"${menuItem.name}" is misconfigured — remove variants or switch back to fixed pricing`,
+        );
+      }
+      if (menuItem.pricePerKg == null) {
+        throw new InvalidOrderItemError(`"${menuItem.name}" is missing a price per kg`);
+      }
+      const validated = validateWeightInput(line.weightG, { minWeightG: menuItem.minWeightG });
+      if (!validated.ok) {
+        throw new InvalidOrderItemError(validated.message);
+      }
+      weightG = validated.weightG;
+      unitPricePerKg = Number(menuItem.pricePerKg);
+      const rounding = normalizePriceRounding(menuItem.priceRounding);
+      unitPrice = computeWeightLineBase(unitPricePerKg, weightG, rounding);
+    } else {
+      if (line.weightG != null) {
+        throw new InvalidOrderItemError(`"${menuItem.name}" is not sold by weight`);
+      }
+
+      if (hasVariants && !line.variantId) {
+        throw new InvalidOrderItemError(`Please select a size/variant for "${menuItem.name}"`);
+      }
+
+      if (!hasVariants && line.variantId) {
+        throw new InvalidOrderItemError(`"${menuItem.name}" does not support variants`);
+      }
+
+      if (line.variantId) {
+        const variant = menuItem.variants.find((entry) => entry.id === line.variantId);
+        if (!variant || !variant.isAvailable) {
+          throw new InvalidOrderItemError(`Selected variant is unavailable for "${menuItem.name}"`);
+        }
+        variantId = variant.id;
+        variantName = variant.name;
+        variantPrice = Number(variant.price);
+        unitPrice = variantPrice;
+      }
     }
 
     const selectedModifiers = validateModifierSelections(
@@ -178,6 +213,7 @@ async function priceItems(
         menuItemId: menuItem.id,
         variantId: variantId,
         quantity: line.quantity,
+        weightG,
         modifierOptionIds: line.modifierOptionIds ?? [],
       },
     ]);
@@ -186,7 +222,15 @@ async function priceItems(
       (sum, modifier) => sum + modifier.priceAdjustment,
       0,
     );
-    const lineTotal = roundMoney((unitPrice + modifierTotal) * line.quantity);
+    const lineTotal = isByWeight
+      ? computeWeightLineTotal(
+          unitPricePerKg!,
+          weightG!,
+          normalizePriceRounding(menuItem.priceRounding),
+          modifierTotal,
+          line.quantity,
+        )
+      : roundMoney((unitPrice + modifierTotal) * line.quantity);
 
     pricedItems.push({
       menuItemId: menuItem.id,
@@ -197,6 +241,8 @@ async function priceItems(
       quantity: line.quantity,
       unitPrice,
       lineTotal,
+      weightG,
+      unitPricePerKg,
       customizationNotes: line.customizationNotes ?? null,
       modifiers: selectedModifiers,
     });

@@ -340,6 +340,8 @@ export interface ModifierGroup {
   options: ModifierOption[];
 }
 
+export type MenuPricingType = 'FIXED' | 'BY_WEIGHT';
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -350,6 +352,13 @@ export interface MenuItem {
   isAvailable: boolean;
   displayOrder: number;
   categoryId: string;
+  pricingType?: MenuPricingType;
+  pricePerKg?: string | number | null;
+  pricingUnitG?: number | null;
+  minWeightG?: number | null;
+  weightStepG?: number | null;
+  quickWeightsG?: number[] | null;
+  priceRounding?: number | null;
   modifierGroups?: ModifierGroup[];
   variants?: MenuItemVariant[];
 }
@@ -483,6 +492,8 @@ export interface OrderItem {
   quantity: number;
   unitPrice: string | number;
   lineTotal: string | number;
+  weightG?: number | null;
+  unitPricePerKg?: string | number | null;
   customizationNotes?: string | null;
   isKitchenAddition?: boolean;
   modifiers?: Array<{
@@ -601,6 +612,8 @@ export interface ProductPerformanceRow {
   revenue: string;
   averageSellingPrice: string;
   orderCount: number;
+  totalWeightKg?: string | null;
+  averagePricePerKg?: string | null;
 }
 
 export interface ProfitReportSummary {

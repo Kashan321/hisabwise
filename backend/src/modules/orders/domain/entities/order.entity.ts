@@ -70,6 +70,8 @@ export interface OrderItemEntity {
   quantity: number;
   unitPrice: string;
   lineTotal: string;
+  weightG: number | null;
+  unitPricePerKg: string | null;
   customizationNotes: string | null;
   isKitchenAddition: boolean;
   modifiers: OrderItemModifierEntity[];
@@ -169,6 +171,7 @@ export interface CreateOrderItemInput {
   menuItemId: string;
   quantity: number;
   variantId?: string;
+  weightG?: number;
   modifierOptionIds?: string[];
   customizationNotes?: string;
 }
@@ -209,6 +212,8 @@ export interface PricedOrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  weightG: number | null;
+  unitPricePerKg: number | null;
   customizationNotes: string | null;
   modifiers: Array<{
     modifierOptionId: string;

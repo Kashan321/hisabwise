@@ -21,6 +21,7 @@ import { useFormatMoney } from '@/lib/hooks/use-business-currency';
 import { formatItemProfit } from '@/lib/menu-item-profit';
 import { useToast } from '@/lib/toast';
 import { InventoryConfigPanel } from '@/components/inventory/inventory-config-panel';
+import { menuItemIsByWeight } from '@/lib/order-item-display';
 
 function VariantRow({
   variant,
@@ -228,6 +229,7 @@ export function MenuItemCustomizationPanel({ item }: { item: MenuItem }) {
 
   return (
     <div className="space-y-8">
+      {!menuItemIsByWeight(item) && (
       <section>
         <h3 className="font-title-lg text-primary mb-1">Sizes / Variants</h3>
         <p className="font-caption text-on-surface-variant mb-4">
@@ -319,6 +321,11 @@ export function MenuItemCustomizationPanel({ item }: { item: MenuItem }) {
           <InventoryConfigPanel targetType="item" targetId={item.id} title="Item inventory (stock link)" />
         )}
       </section>
+      )}
+
+      {menuItemIsByWeight(item) && (
+        <InventoryConfigPanel targetType="item" targetId={item.id} title="Item inventory (stock link)" />
+      )}
 
       <section>
         <h3 className="font-title-lg text-primary mb-1">Customizations</h3>

@@ -42,3 +42,9 @@ export class MenuCsvImportError extends AppError {
     super(ErrorCodes.MENU_CSV_IMPORT_ERROR, 'Menu CSV import failed', 400, { errors });
   }
 }
+
+export class SellByWeightConflictError extends AppError {
+  constructor(message: string) {
+    super(ErrorCodes.CONFLICT, message, 409);
+  }
+}

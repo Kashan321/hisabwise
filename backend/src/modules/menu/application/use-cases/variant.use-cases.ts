@@ -1,5 +1,9 @@
 import { MenuRepository } from '../../domain/repositories/menu.repository';
-import { MenuItemNotFoundError, MenuItemVariantNotFoundError } from '../../domain/errors/menu.errors';
+import {
+  MenuItemNotFoundError,
+  MenuItemVariantNotFoundError,
+  SellByWeightConflictError,
+} from '../../domain/errors/menu.errors';
 
 export class ListModifierGroupsUseCase {
   constructor(private readonly menuRepository: MenuRepository) {}
@@ -18,8 +22,13 @@ export class CreateMenuItemVariantUseCase {
     input: { name: string; price: string; basePrice?: string; displayOrder?: number },
   ) {
     try {
+      const blocked = await this.menuRepository.isSellByWeightItem(businessId, itemId);
+      if (blocked) {
+        throw new SellByWeightConflictError('Variants are not available on sell-by-weight items');
+      }
       return await this.menuRepository.createVariant(businessId, itemId, input);
-    } catch {
+    } catch (error) {
+      if (error instanceof SellByWeightConflictError) throw error;
       throw new MenuItemNotFoundError();
     }
   }

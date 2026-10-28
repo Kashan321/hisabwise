@@ -6,6 +6,7 @@ export type OrderLineConsumptionInput = {
   menuItemId: string;
   variantId?: string | null;
   quantity: number;
+  weightG?: number | null;
   modifierOptionIds: string[];
 };
 
@@ -88,10 +89,12 @@ export class InventoryConsumptionCalculator {
     const aggregated = new Map<string, number>();
 
     for (const line of lines) {
+      const consumptionUnits =
+        line.weightG != null ? (line.weightG / 1000) * line.quantity : line.quantity;
       const baseConfig = line.variantId
         ? variantMap.get(line.variantId)
         : itemMap.get(line.menuItemId);
-      this.addTrackingConsumption(aggregated, baseConfig ?? null, line.quantity);
+      this.addTrackingConsumption(aggregated, baseConfig ?? null, consumptionUnits);
 
       for (const modifierOptionId of line.modifierOptionIds) {
         this.addTrackingConsumption(

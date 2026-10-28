@@ -15,6 +15,7 @@ import {
   MenuItemVariantNotFoundError,
   ModifierGroupNotFoundError,
   ModifierOptionNotFoundError,
+  SellByWeightConflictError,
 } from '../../domain/errors/menu.errors';
 
 function decimalToString(value: Prisma.Decimal): string {
@@ -79,6 +80,12 @@ function mapModifierGroup(group: {
   };
 }
 
+function parseQuickWeights(value: Prisma.JsonValue | null): number[] | null {
+  if (!value || !Array.isArray(value)) return null;
+  const nums = value.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return nums.length ? nums : null;
+}
+
 function mapItem(item: {
   id: string;
   categoryId: string;
@@ -89,6 +96,13 @@ function mapItem(item: {
   imageUrl: string | null;
   isAvailable: boolean;
   displayOrder: number;
+  pricingType: 'FIXED' | 'BY_WEIGHT';
+  pricePerKg: Prisma.Decimal | null;
+  pricingUnitG: number | null;
+  minWeightG: number | null;
+  weightStepG: number | null;
+  quickWeightsG: Prisma.JsonValue | null;
+  priceRounding: number | null;
   modifierGroups: Array<{
     modifierGroup: {
       id: string;
@@ -124,6 +138,13 @@ function mapItem(item: {
     imageUrl: item.imageUrl,
     isAvailable: item.isAvailable,
     displayOrder: item.displayOrder,
+    pricingType: item.pricingType,
+    pricePerKg: item.pricePerKg != null ? decimalToString(item.pricePerKg) : null,
+    pricingUnitG: item.pricingUnitG,
+    minWeightG: item.minWeightG,
+    weightStepG: item.weightStepG,
+    quickWeightsG: parseQuickWeights(item.quickWeightsG),
+    priceRounding: item.priceRounding,
     modifierGroups: item.modifierGroups
       .filter((link) => link.modifierGroup)
       .map((link) => mapModifierGroup(link.modifierGroup)),
@@ -239,6 +260,13 @@ export class PrismaMenuRepository implements MenuRepository {
       basePrice?: string;
       imageUrl?: string;
       displayOrder?: number;
+      pricingType?: 'FIXED' | 'BY_WEIGHT';
+      pricePerKg?: string | null;
+      pricingUnitG?: number | null;
+      minWeightG?: number | null;
+      weightStepG?: number | null;
+      quickWeightsG?: number[] | null;
+      priceRounding?: number | null;
     },
   ) {
     const item = await prisma.menuItem.create({
@@ -251,6 +279,13 @@ export class PrismaMenuRepository implements MenuRepository {
         basePrice: input.basePrice ?? null,
         imageUrl: normalizeImageUrl(input.imageUrl),
         displayOrder: input.displayOrder ?? 0,
+        pricingType: input.pricingType ?? 'FIXED',
+        pricePerKg: input.pricePerKg ?? null,
+        pricingUnitG: input.pricingUnitG ?? null,
+        minWeightG: input.minWeightG ?? null,
+        weightStepG: input.weightStepG ?? null,
+        quickWeightsG: input.quickWeightsG ?? undefined,
+        priceRounding: input.priceRounding ?? null,
       },
       include: itemInclude,
     });
@@ -269,6 +304,13 @@ export class PrismaMenuRepository implements MenuRepository {
       imageUrl?: string | null;
       isAvailable?: boolean;
       displayOrder?: number;
+      pricingType?: 'FIXED' | 'BY_WEIGHT';
+      pricePerKg?: string | null;
+      pricingUnitG?: number | null;
+      minWeightG?: number | null;
+      weightStepG?: number | null;
+      quickWeightsG?: number[] | null;
+      priceRounding?: number | null;
     },
   ) {
     const existing = await prisma.menuItem.findFirst({ where: { id: itemId, businessId } });
@@ -277,14 +319,39 @@ export class PrismaMenuRepository implements MenuRepository {
     const item = await prisma.menuItem.update({
       where: { id: itemId },
       data: {
-        ...input,
+        categoryId: input.categoryId,
+        name: input.name,
+        description: input.description,
         price: input.price !== undefined ? input.price : undefined,
         basePrice: input.basePrice !== undefined ? input.basePrice : undefined,
         imageUrl: normalizeImageUrl(input.imageUrl),
+        isAvailable: input.isAvailable,
+        displayOrder: input.displayOrder,
+        pricingType: input.pricingType,
+        pricePerKg: input.pricePerKg,
+        pricingUnitG: input.pricingUnitG,
+        minWeightG: input.minWeightG,
+        weightStepG: input.weightStepG,
+        quickWeightsG: input.quickWeightsG ?? undefined,
+        priceRounding: input.priceRounding,
       },
       include: itemInclude,
     });
     return storageUrlResolver.resolveMenuItem(mapItem(item));
+  }
+
+  async countVariants(businessId: string, itemId: string): Promise<number> {
+    return prisma.menuItemVariant.count({
+      where: { menuItemId: itemId, menuItem: { businessId } },
+    });
+  }
+
+  async isSellByWeightItem(businessId: string, itemId: string): Promise<boolean> {
+    const item = await prisma.menuItem.findFirst({
+      where: { id: itemId, businessId },
+      select: { pricingType: true },
+    });
+    return item?.pricingType === 'BY_WEIGHT';
   }
 
   async deleteItem(businessId: string, itemId: string) {
@@ -432,6 +499,9 @@ export class PrismaMenuRepository implements MenuRepository {
   ) {
     const item = await prisma.menuItem.findFirst({ where: { id: itemId, businessId } });
     if (!item) throw new MenuItemNotFoundError();
+    if (item.pricingType === 'BY_WEIGHT') {
+      throw new SellByWeightConflictError('Variants are not available on sell-by-weight items');
+    }
 
     const variant = await prisma.menuItemVariant.create({
       data: {

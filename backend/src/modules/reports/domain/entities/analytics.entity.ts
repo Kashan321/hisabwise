@@ -44,6 +44,8 @@ export interface ProductPerformanceRow {
   revenue: string;
   averageSellingPrice: string;
   orderCount: number;
+  totalWeightKg?: string | null;
+  averagePricePerKg?: string | null;
 }
 
 export interface ProfitReportSummary {

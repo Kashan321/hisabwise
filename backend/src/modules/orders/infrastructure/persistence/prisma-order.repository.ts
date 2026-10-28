@@ -143,6 +143,8 @@ function mapOrderItem(item: {
   quantity: number;
   unitPrice: Prisma.Decimal;
   lineTotal: Prisma.Decimal;
+  weightG: number | null;
+  unitPricePerKg: Prisma.Decimal | null;
   customizationNotes: string | null;
   isKitchenAddition: boolean;
   menuItem?: { imageUrl: string | null } | null;
@@ -164,6 +166,8 @@ function mapOrderItem(item: {
     quantity: item.quantity,
     unitPrice: decimalToString(item.unitPrice),
     lineTotal: decimalToString(item.lineTotal),
+    weightG: item.weightG,
+    unitPricePerKg: item.unitPricePerKg ? decimalToString(item.unitPricePerKg) : null,
     customizationNotes: item.customizationNotes,
     isKitchenAddition: item.isKitchenAddition,
     modifiers: item.modifiers.map((modifier) => ({
@@ -541,6 +545,8 @@ export class PrismaOrderRepository implements OrderRepository {
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               lineTotal: item.lineTotal,
+              weightG: item.weightG,
+              unitPricePerKg: item.unitPricePerKg,
               customizationNotes: item.customizationNotes,
               modifiers: {
                 create: item.modifiers.map((modifier) => ({
@@ -723,6 +729,8 @@ export class PrismaOrderRepository implements OrderRepository {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             lineTotal: item.lineTotal,
+            weightG: item.weightG,
+            unitPricePerKg: item.unitPricePerKg,
             customizationNotes: item.customizationNotes,
             isKitchenAddition: true,
             modifiers: {

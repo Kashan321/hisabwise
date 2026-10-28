@@ -75,6 +75,11 @@ enum InventoryTrackingMode {
   RECIPE
 }
 
+enum MenuPricingType {
+  FIXED
+  BY_WEIGHT
+}
+
 enum InventoryMovementType {
   SALE
   SALE_REVERSAL
@@ -350,6 +355,13 @@ model MenuItem {
   displayOrder           Int                   @default(0) @map("display_order")
   inventoryTrackingMode  InventoryTrackingMode @default(NONE) @map("inventory_tracking_mode")
   inventoryItemId        String?               @map("inventory_item_id") @db.Uuid
+  pricingType            MenuPricingType       @default(FIXED) @map("pricing_type")
+  pricePerKg             Decimal?              @map("price_per_kg") @db.Decimal(12, 2)
+  pricingUnitG           Int?                  @map("pricing_unit_g")
+  minWeightG             Int?                  @map("min_weight_g")
+  weightStepG            Int?                  @map("weight_step_g")
+  quickWeightsG          Json?                 @map("quick_weights_g")
+  priceRounding          Int?                  @map("price_rounding")
   createdAt              DateTime              @default(now()) @map("created_at")
 
   business       Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -844,6 +856,8 @@ model OrderItem {
   quantity           Int
   unitPrice          Decimal  @map("unit_price") @db.Decimal(10, 2)
   lineTotal          Decimal  @map("line_total") @db.Decimal(10, 2)
+  weightG            Int?     @map("weight_g")
+  unitPricePerKg     Decimal? @map("unit_price_per_kg") @db.Decimal(12, 2)
   customizationNotes String?  @map("customization_notes")
   isKitchenAddition  Boolean  @default(false) @map("is_kitchen_addition")
 

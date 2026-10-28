@@ -1,6 +1,7 @@
 import { Icon, timeAgo } from '@/components/ui';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import type { Order, OrderType } from '@/lib/api/types';
+import { formatOrderItemShortLabel } from '@/lib/order-item-display';
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
   DINE_IN: 'Dine In',
@@ -138,7 +139,7 @@ export function orderNextStatus(status: string): string | null {
 }
 
 function formatOrderItemLine(item: NonNullable<Order['items']>[number]): string {
-  return `${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.menuItemName}`;
+  return formatOrderItemShortLabel(item);
 }
 
 export function formatOrderItems(order: Order): string {

@@ -6,6 +6,10 @@ import { formatCurrency } from '@/lib/format-currency';
 import { APP_NAME } from '@/lib/config';
 import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
 import {
+  formatOrderItemReceiptQtyLine,
+  formatOrderItemWeightLine,
+} from '@/lib/order-item-display';
+import {
   DEFAULT_RECEIPT_TEMPLATE,
   type ReceiptTemplate,
 } from '@/lib/receipt/receipt-template';
@@ -103,6 +107,10 @@ function buildKitchenItemsHtml(order: Order): string {
         ? `<div class="sub-line">${escapeHtml(item.variantName)}</div>`
         : '';
 
+      const weightLine = formatOrderItemWeightLine(item)
+        ? `<div class="sub-line kitchen-weight">${escapeHtml(formatOrderItemWeightLine(item)!)}</div>`
+        : '';
+
       const notes = item.customizationNotes
         ? `<div class="sub-line note">${escapeHtml(item.customizationNotes)}</div>`
         : '';
@@ -115,6 +123,7 @@ function buildKitchenItemsHtml(order: Order): string {
             'item-row kitchen-item-row',
           )}
           ${variantLine}
+          ${weightLine}
           ${modifiers}
           ${notes}
           <div class="kitchen-rule-solid"></div>
@@ -131,9 +140,9 @@ function buildItemsHtml(order: Order, showAmounts = true): string {
 
   return items
     .map((item) => {
-      const qtyLine = item.variantName
-        ? `${escapeHtml(item.variantName)} &times; ${item.quantity}`
-        : `${item.quantity} &times; ${amount(item.unitPrice)}`;
+      const qtyLine = escapeHtml(
+        formatOrderItemReceiptQtyLine(item, (n) => amount(n)),
+      );
 
       const modifiers = (item.modifiers ?? [])
         .map((mod) => {

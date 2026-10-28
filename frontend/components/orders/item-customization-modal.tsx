@@ -12,6 +12,7 @@ import {
   itemHasVariants,
   lineUnitPrice,
 } from '@/lib/cart-line';
+import { menuItemIsByWeight } from '@/lib/order-item-display';
 import { useFormatMoney } from '@/lib/hooks/use-business-currency';
 
 export function ItemCustomizationModal({
@@ -51,9 +52,18 @@ export function ItemCustomizationModal({
   }, [open, item.id, initialSelection]);
 
   const modifierOptionIds = useMemo(() => Object.values(selected).flat(), [selected]);
-  const selection: CartLineSelection = { variantId, modifierOptionIds };
+  const selection: CartLineSelection = {
+    variantId: menuItemIsByWeight(item) ? null : variantId,
+    weightG: initialSelection?.weightG ?? null,
+    modifierOptionIds,
+  };
   const isValid = isCustomizationValid(item, selection);
-  const totalPrice = lineUnitPrice(item, modifierOptionIds, variantId);
+  const totalPrice = lineUnitPrice(
+    item,
+    modifierOptionIds,
+    selection.variantId,
+    selection.weightG,
+  );
 
   function toggleOption(group: ModifierGroup, optionId: string) {
     setSelected((prev) => {
@@ -76,11 +86,13 @@ export function ItemCustomizationModal({
     onClose();
   }
 
-  const availableVariants = (item.variants ?? []).filter(
-    (variant) =>
-      variant.isAvailable &&
-      isSellableInventoryOk(inventoryAvailability, item.id, variant.id, []),
-  );
+  const availableVariants = menuItemIsByWeight(item)
+    ? []
+    : (item.variants ?? []).filter(
+        (variant) =>
+          variant.isAvailable &&
+          isSellableInventoryOk(inventoryAvailability, item.id, variant.id, []),
+      );
 
   return (
     <Modal

@@ -12,6 +12,7 @@ import { HeldOrdersDrawer } from '@/components/orders/held-orders-drawer';
 import { OrderTypeBadge } from '@/components/orders/order-badges';
 import { PosLiveOrdersStripe } from '@/components/orders/pos-live-orders-stripe';
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
+import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import { formatApiError } from '@/lib/api/errors';
 import type { Customer, MenuItem, Order, OrderItem } from '@/lib/api/types';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
@@ -19,13 +20,16 @@ import {
   type CartLine,
   type CartLineSelection,
   cartLineKey,
+  cartLineTotal,
   formatCartLineSummary,
   getItemDisplayPrice,
   itemNeedsCustomization,
+  itemNeedsWeightEntry,
   isCartLineValid,
   isSellableInventoryOk,
   lineUnitPrice,
 } from '@/lib/cart-line';
+import { formatOrderItemWeightLine, menuItemIsByWeight } from '@/lib/order-item-display';
 import {
   useAddOrderItems,
   useAdjustOrderItemQuantity,
@@ -50,6 +54,7 @@ import {
   isOpenTabOrderType,
   posAddItemsHref,
 } from '@/lib/open-tab-order';
+import { useBrowserFullscreen } from '@/lib/hooks/use-browser-fullscreen';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
 import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import {
@@ -333,8 +338,9 @@ const PosCatalogCard = memo(function PosCatalogCard({
   onAdd: () => void;
   justAdded?: boolean;
 }) {
-  const price =
-    (item.variants?.length ?? 0) > 0
+  const price = menuItemIsByWeight(item)
+    ? `${formatMoney(getItemDisplayPrice(item))}/kg`
+    : (item.variants?.length ?? 0) > 0
       ? `From ${formatMoney(getItemDisplayPrice(item))}`
       : formatMoney(item.price);
   const inCart = qtyInCart > 0;
@@ -400,6 +406,7 @@ const ExistingOrderLineRow = memo(function ExistingOrderLineRow({
   loading?: boolean;
 }) {
   const summaryLines = [
+    item.weightG != null ? formatOrderItemWeightLine(item) : null,
     item.variantName,
     ...(item.modifiers ?? []).map((mod) => mod.modifierName),
   ].filter(Boolean) as string[];
@@ -542,7 +549,7 @@ const CartLineRow = memo(function CartLineRow({
   item,
   quantity,
   summaryLines,
-  unitPrice,
+  lineTotal,
   formatMoney,
   onEdit,
   onUpdateQty,
@@ -553,7 +560,7 @@ const CartLineRow = memo(function CartLineRow({
   item: MenuItem;
   quantity: number;
   summaryLines: string[];
-  unitPrice: number;
+  lineTotal: number;
   formatMoney: (amount: number | string | null | undefined) => string;
   onEdit: () => void;
   onUpdateQty: (delta: number) => void;
@@ -575,7 +582,7 @@ const CartLineRow = memo(function CartLineRow({
         <p className={`font-body-emphasis ${titleClass} leading-tight min-w-0 flex-1 line-clamp-2`}>
           {item.name}
         </p>
-        <p className={CART_LINE_PRICE_CLASS}>{formatMoney(unitPrice * quantity)}</p>
+        <p className={CART_LINE_PRICE_CLASS}>{formatMoney(lineTotal)}</p>
       </div>
       <div
         className={`flex items-center justify-between gap-2 ${hasMeta ? 'mt-1' : 'mt-1.5'}`}
@@ -645,6 +652,25 @@ function PosBillExitLink({ href }: { href: string }) {
       <Icon name="arrow_back" />
       <span className="kds-header__exit-label">Exit</span>
     </Link>
+  );
+}
+
+function PosBillFullscreenButton() {
+  const { active, supported, toggle } = useBrowserFullscreen();
+  if (!supported) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => void toggle()}
+      className="kds-header__exit shrink-0 hover:opacity-90 transition-opacity !bg-secondary !text-on-secondary"
+      aria-pressed={active}
+      aria-label={active ? 'Exit full screen' : 'Enter full screen'}
+      title={active ? 'Exit full screen (Esc)' : 'Full screen (like F11)'}
+    >
+      <Icon name={active ? 'fullscreen_exit' : 'fullscreen'} />
+      <span className="kds-header__exit-label">{active ? 'Exit screen' : 'Full screen'}</span>
+    </button>
   );
 }
 
@@ -726,6 +752,8 @@ export function PosOrderScreen({
   const [orderNotes, setOrderNotes] = useState('');
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [customizationItem, setCustomizationItem] = useState<MenuItem | null>(null);
+  const [weightItem, setWeightItem] = useState<MenuItem | null>(null);
+  const [pendingWeightG, setPendingWeightG] = useState<number | null>(null);
   const [editingLineKey, setEditingLineKey] = useState<string | null>(null);
   const [initialSelection, setInitialSelection] = useState<CartLineSelection | undefined>();
   const [cartOpen, setCartOpen] = useState(false);
@@ -986,13 +1014,13 @@ export function PosOrderScreen({
         .map(([lineKey, line]) => {
           const item = itemById[line.menuItemId];
           if (!item) return null;
-          const unitPrice = lineUnitPrice(item, line.modifierOptionIds, line.variantId);
+          const lineTotal = cartLineTotal(item, line);
           return {
             lineKey,
             item,
             quantity: line.quantity,
             summaryLines: formatCartLineSummary(item, line),
-            unitPrice,
+            lineTotal,
           };
         })
         .filter((line): line is NonNullable<typeof line> => line !== null),
@@ -1090,10 +1118,7 @@ export function PosOrderScreen({
     return map;
   }, [cartLines]);
 
-  const cartSubtotal = cartLines.reduce(
-    (sum, line) => sum + line.unitPrice * line.quantity,
-    0,
-  );
+  const cartSubtotal = cartLines.reduce((sum, line) => sum + line.lineTotal, 0);
 
   const applicablePromotions = useMemo(
     () => promotions.filter((p) => isPromotionApplicable(p)),
@@ -1164,7 +1189,12 @@ export function PosOrderScreen({
   }
 
   function addToCart(menuItemId: string, selection: CartLineSelection, quantity = 1) {
-    const key = cartLineKey(menuItemId, selection.modifierOptionIds, selection.variantId);
+    const key = cartLineKey(
+      menuItemId,
+      selection.modifierOptionIds,
+      selection.variantId,
+      selection.weightG,
+    );
     setCart((c) => {
       const existing = c[key];
       return {
@@ -1172,6 +1202,7 @@ export function PosOrderScreen({
         [key]: {
           menuItemId,
           variantId: selection.variantId,
+          weightG: selection.weightG,
           modifierOptionIds: selection.modifierOptionIds,
           quantity: (existing?.quantity ?? 0) + quantity,
         },
@@ -1184,17 +1215,25 @@ export function PosOrderScreen({
     setCart((c) => {
       const next = { ...c };
       delete next[oldLineKey];
-      const key = cartLineKey(line.menuItemId, line.modifierOptionIds, line.variantId);
-      const existing = next[key];
-      next[key] = {
-        ...line,
-        quantity: (existing?.quantity ?? 0) + line.quantity,
-      };
+      const key = cartLineKey(
+        line.menuItemId,
+        line.modifierOptionIds,
+        line.variantId,
+        line.weightG,
+      );
+      next[key] = { ...line };
       return next;
     });
   }
 
   function handleCatalogClick(item: MenuItem) {
+    if (itemNeedsWeightEntry(item)) {
+      setEditingLineKey(null);
+      setInitialSelection(undefined);
+      setPendingWeightG(null);
+      setWeightItem(item);
+      return;
+    }
     if (itemNeedsCustomization(item)) {
       setEditingLineKey(null);
       setInitialSelection(undefined);
@@ -1204,29 +1243,86 @@ export function PosOrderScreen({
     addToCart(item.id, { modifierOptionIds: [] });
   }
 
+  function afterWeightChosen(item: MenuItem, weightG: number) {
+    if (itemNeedsCustomization(item)) {
+      setPendingWeightG(weightG);
+      setCustomizationItem(item);
+      setInitialSelection({ weightG, modifierOptionIds: [] });
+      return;
+    }
+    addToCart(item.id, { weightG, modifierOptionIds: [] });
+  }
+
+  function handleWeightConfirm(weightG: number) {
+    if (!weightItem) return;
+    if (editingLineKey) {
+      const line = cart[editingLineKey];
+      if (line) {
+        if (itemNeedsCustomization(weightItem)) {
+          setPendingWeightG(weightG);
+          setInitialSelection({
+            weightG,
+            variantId: line.variantId,
+            modifierOptionIds: line.modifierOptionIds,
+          });
+          setCustomizationItem(weightItem);
+        } else {
+          replaceCartLine(editingLineKey, {
+            ...line,
+            weightG,
+            variantId: null,
+          });
+          setEditingLineKey(null);
+        }
+      }
+      setWeightItem(null);
+      return;
+    }
+    afterWeightChosen(weightItem, weightG);
+    setWeightItem(null);
+  }
+
   function handleCustomizationConfirm(selection: CartLineSelection) {
     if (!customizationItem) return;
+    const weightG = selection.weightG ?? pendingWeightG ?? undefined;
+    if (menuItemIsByWeight(customizationItem) && weightG == null) {
+      setWeightItem(customizationItem);
+      return;
+    }
+    const fullSelection: CartLineSelection = {
+      ...selection,
+      weightG: menuItemIsByWeight(customizationItem) ? weightG : selection.weightG,
+      variantId: menuItemIsByWeight(customizationItem) ? null : selection.variantId,
+    };
     if (editingLineKey) {
       const line = cart[editingLineKey];
       if (line) {
         replaceCartLine(editingLineKey, {
           menuItemId: customizationItem.id,
-          variantId: selection.variantId,
-          modifierOptionIds: selection.modifierOptionIds,
+          variantId: fullSelection.variantId,
+          weightG: fullSelection.weightG,
+          modifierOptionIds: fullSelection.modifierOptionIds,
           quantity: line.quantity,
         });
       }
       setEditingLineKey(null);
       setInitialSelection(undefined);
       setCustomizationItem(null);
+      setPendingWeightG(null);
       return;
     }
-    addToCart(customizationItem.id, selection);
+    addToCart(customizationItem.id, fullSelection);
     setCustomizationItem(null);
+    setPendingWeightG(null);
   }
 
   function handleEditLine(lineKey: string, line: CartLine, item: MenuItem) {
     setEditingLineKey(lineKey);
+    if (menuItemIsByWeight(item)) {
+      setWeightItem(item);
+      setInitialSelection(undefined);
+      return;
+    }
     setInitialSelection({
       variantId: line.variantId,
       modifierOptionIds: line.modifierOptionIds,
@@ -1267,6 +1363,7 @@ export function PosOrderScreen({
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         ...(line.variantId ? { variantId: line.variantId } : {}),
+        ...(line.weightG != null ? { weightG: line.weightG } : {}),
         ...(line.modifierOptionIds.length
           ? { modifierOptionIds: line.modifierOptionIds }
           : {}),
@@ -1722,16 +1819,16 @@ export function PosOrderScreen({
         </p>
       ) : (
         <div className="space-y-1.5">
-          {cartLines.map(({ lineKey, item, quantity, summaryLines, unitPrice }) => (
+          {cartLines.map(({ lineKey, item, quantity, summaryLines, lineTotal }) => (
             <CartLineRow
               key={lineKey}
               item={item}
               quantity={quantity}
               summaryLines={summaryLines}
-              unitPrice={unitPrice}
+              lineTotal={lineTotal}
               formatMoney={formatMoney}
               compact
-              canEdit={itemNeedsCustomization(item)}
+              canEdit={itemNeedsCustomization(item) || itemNeedsWeightEntry(item)}
               onEdit={() => handleEditLine(lineKey, cart[lineKey], item)}
               onUpdateQty={(delta) => updateQty(lineKey, delta)}
               onRemove={() => updateQty(lineKey, -quantity)}
@@ -1971,6 +2068,25 @@ export function PosOrderScreen({
         exitHref ? 'pos-bill-immersive' : ''
       }`}
     >
+      {weightItem && (
+        <WeightEntryModal
+          item={weightItem}
+          open={!!weightItem}
+          themeStyle={themeStyle}
+          initialWeightG={
+            editingLineKey ? cart[editingLineKey]?.weightG : pendingWeightG ?? undefined
+          }
+          confirmLabel={editingLineKey ? 'Update weight' : 'Add to order'}
+          onClose={() => {
+            setWeightItem(null);
+            if (!customizationItem) {
+              setEditingLineKey(null);
+            }
+          }}
+          onConfirm={handleWeightConfirm}
+        />
+      )}
+
       {customizationItem && (
         <ItemCustomizationModal
           item={customizationItem}
@@ -1980,6 +2096,7 @@ export function PosOrderScreen({
             setCustomizationItem(null);
             setEditingLineKey(null);
             setInitialSelection(undefined);
+            setPendingWeightG(null);
           }}
           initialSelection={initialSelection}
           confirmLabel={editingLineKey ? 'Update item' : 'Add to order'}
@@ -1994,7 +2111,10 @@ export function PosOrderScreen({
         }`}
       >
         {exitHref ? (
-          <PosBillExitLink href={exitHref} />
+          <>
+            <PosBillExitLink href={exitHref} />
+            <PosBillFullscreenButton />
+          </>
         ) : (
           <Link
             href={backHref}
@@ -2086,7 +2206,10 @@ export function PosOrderScreen({
             className={`hidden lg:flex shrink-0 items-center gap-2 px-3 py-2 border-b ${BILL_SCREEN_BORDER} ${BILL_SCREEN_SURFACE}`}
           >
             {exitHref ? (
-              <PosBillExitLink href={exitHref} />
+              <>
+                <PosBillExitLink href={exitHref} />
+                <PosBillFullscreenButton />
+              </>
             ) : (
               <Link
                 href={backHref}

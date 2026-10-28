@@ -246,9 +246,16 @@ export class PrismaAnalyticsRepository {
         menuItemId: true,
         menuItemName: true,
         quantity: true,
-        unitPrice: true,
+        lineTotal: true,
+        weightG: true,
+        unitPricePerKg: true,
         orderId: true,
-        menuItem: { select: { category: { select: { name: true } } } },
+        menuItem: {
+          select: {
+            pricingType: true,
+            category: { select: { name: true } },
+          },
+        },
       },
     });
 
@@ -259,6 +266,8 @@ export class PrismaAnalyticsRepository {
         categoryName: string | null;
         quantity: number;
         revenue: number;
+        weightGrams: number;
+        isByWeight: boolean;
         orders: Set<string>;
       }
     >();
@@ -266,15 +275,22 @@ export class PrismaAnalyticsRepository {
     for (const item of items) {
       if (!item.menuItemId) continue;
       const key = item.menuItemId;
+      const isByWeight = item.menuItem?.pricingType === 'BY_WEIGHT' || item.weightG != null;
       const row = map.get(key) ?? {
         name: item.menuItemName,
         categoryName: item.menuItem?.category?.name ?? null,
         quantity: 0,
         revenue: 0,
+        weightGrams: 0,
+        isByWeight,
         orders: new Set<string>(),
       };
       row.quantity += item.quantity;
-      row.revenue += dec(item.unitPrice) * item.quantity;
+      row.revenue += dec(item.lineTotal);
+      if (item.weightG != null) {
+        row.weightGrams += item.weightG * item.quantity;
+        row.isByWeight = true;
+      }
       row.orders.add(item.orderId);
       map.set(key, row);
     }
@@ -287,6 +303,11 @@ export class PrismaAnalyticsRepository {
       revenue: decStr(r.revenue),
       averageSellingPrice: decStr(r.quantity > 0 ? r.revenue / r.quantity : 0),
       orderCount: r.orders.size,
+      totalWeightKg: r.isByWeight ? decStr(r.weightGrams / 1000) : null,
+      averagePricePerKg:
+        r.isByWeight && r.weightGrams > 0
+          ? decStr((r.revenue / r.weightGrams) * 1000)
+          : null,
     }));
 
     rows.sort((a, b) =>

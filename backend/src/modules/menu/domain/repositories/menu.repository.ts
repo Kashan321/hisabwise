@@ -34,6 +34,13 @@ export interface MenuItemEntity {
   imageUrl: string | null;
   isAvailable: boolean;
   displayOrder: number;
+  pricingType: 'FIXED' | 'BY_WEIGHT';
+  pricePerKg: string | null;
+  pricingUnitG: number | null;
+  minWeightG: number | null;
+  weightStepG: number | null;
+  quickWeightsG: number[] | null;
+  priceRounding: number | null;
   modifierGroups: ModifierGroupEntity[];
   variants: MenuItemVariantEntity[];
 }
@@ -71,6 +78,13 @@ export interface MenuRepository {
       basePrice?: string;
       imageUrl?: string;
       displayOrder?: number;
+      pricingType?: 'FIXED' | 'BY_WEIGHT';
+      pricePerKg?: string | null;
+      pricingUnitG?: number | null;
+      minWeightG?: number | null;
+      weightStepG?: number | null;
+      quickWeightsG?: number[] | null;
+      priceRounding?: number | null;
     },
   ): Promise<MenuItemEntity>;
   updateItem(
@@ -85,8 +99,17 @@ export interface MenuRepository {
       imageUrl?: string | null;
       isAvailable?: boolean;
       displayOrder?: number;
+      pricingType?: 'FIXED' | 'BY_WEIGHT';
+      pricePerKg?: string | null;
+      pricingUnitG?: number | null;
+      minWeightG?: number | null;
+      weightStepG?: number | null;
+      quickWeightsG?: number[] | null;
+      priceRounding?: number | null;
     },
   ): Promise<MenuItemEntity>;
+  countVariants(businessId: string, itemId: string): Promise<number>;
+  isSellByWeightItem(businessId: string, itemId: string): Promise<boolean>;
   deleteItem(businessId: string, itemId: string): Promise<void>;
 
   createModifierGroup(
