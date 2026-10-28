@@ -13,7 +13,9 @@ import {
   ListOrderChangeRequestsUseCase,
   ReviewOrderChangeRequestUseCase,
   SendOrderToKitchenUseCase,
+  TransferOrderTableUseCase,
   TransferOrderWaiterUseCase,
+  MergeOrdersUseCase,
   UpdateDeliveryStatusUseCase,
 } from '../application/use-cases/order-operations.use-cases';
 import {
@@ -43,6 +45,8 @@ export const ordersModule = {
   assignRider: new AssignRiderUseCase(orderRepository),
   updateDeliveryStatus: new UpdateDeliveryStatusUseCase(orderRepository),
   transferOrderWaiter: new TransferOrderWaiterUseCase(orderRepository),
+  transferOrderTable: new TransferOrderTableUseCase(orderRepository),
+  mergeOrders: new MergeOrdersUseCase(orderRepository),
   assignTableWaiter: new AssignTableWaiterUseCase(orderRepository),
   createOrderChangeRequest: new CreateOrderChangeRequestUseCase(orderRepository),
   reviewOrderChangeRequest: new ReviewOrderChangeRequestUseCase(orderRepository),

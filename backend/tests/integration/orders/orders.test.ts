@@ -195,4 +195,47 @@ describe('Orders module', () => {
     expect(create.body.data.order.totalAmount).toBe('9.72');
     expect(create.body.data.order.promotionTitle).toBe('Ten Off');
   });
+
+  it('cancels a held draft order', async () => {
+    const slug = `orders-draft-cancel-${Date.now()}`;
+    const register = await registerOwner(slug);
+    const token = register.body.data.accessToken;
+    await openBusinessDay(app, token);
+
+    const category = await request(app)
+      .post('/api/v1/menu/categories')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Snacks' });
+
+    const item = await request(app)
+      .post('/api/v1/menu/items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        categoryId: category.body.data.category.id,
+        name: 'Chips',
+        price: '3.00',
+      });
+
+    const create = await request(app)
+      .post('/api/v1/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        source: 'STAFF_ASSISTED',
+        isDraft: true,
+        items: [{ menuItemId: item.body.data.item.id, quantity: 1 }],
+      });
+
+    expect(create.status).toBe(201);
+    expect(create.body.data.order.isDraft).toBe(true);
+    const orderId = create.body.data.order.id;
+
+    const cancel = await request(app)
+      .patch(`/api/v1/orders/${orderId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'CANCELLED' });
+
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.data.order.status).toBe('CANCELLED');
+    expect(cancel.body.data.order.isDraft).toBe(false);
+  });
 });

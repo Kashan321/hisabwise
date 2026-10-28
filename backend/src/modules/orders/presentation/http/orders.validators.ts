@@ -214,6 +214,14 @@ export const transferWaiterSchema = z.object({
   waiterId: z.string().uuid(),
 });
 
+export const transferOrderTableSchema = z.object({
+  targetTableId: z.string().uuid(),
+});
+
+export const mergeOrdersSchema = z.object({
+  sourceOrderId: z.string().uuid(),
+});
+
 export const assignTableWaiterSchema = z.object({
   waiterId: z.string().uuid().nullable(),
 });

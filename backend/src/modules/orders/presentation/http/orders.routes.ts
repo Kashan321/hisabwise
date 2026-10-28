@@ -22,6 +22,8 @@ import {
   listOrdersQuerySchema,
   reviewChangeRequestSchema,
   transferWaiterSchema,
+  transferOrderTableSchema,
+  mergeOrdersSchema,
   updateDeliveryStatusSchema,
   updateOrderPricingSchema,
   updateOrderStatusSchema,
@@ -109,6 +111,22 @@ ordersRouter.post(
   canManageOrders,
   validateBody(transferWaiterSchema),
   ordersController.transferWaiter,
+);
+
+ordersRouter.post(
+  '/:id/transfer-table',
+  requireAuth,
+  canServeOrders,
+  validateBody(transferOrderTableSchema),
+  ordersController.transferTable,
+);
+
+ordersRouter.post(
+  '/:id/merge',
+  requireAuth,
+  canServeOrders,
+  validateBody(mergeOrdersSchema),
+  ordersController.mergeOrders,
 );
 
 ordersRouter.get(

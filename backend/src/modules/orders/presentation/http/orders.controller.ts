@@ -147,6 +147,26 @@ export class OrdersController {
     return success(res, { order });
   });
 
+  transferTable = asyncHandler(async (req: Request, res: Response) => {
+    const order = await ordersModule.transferOrderTable.execute(
+      req.tenantContext!.businessId,
+      String(req.params.id),
+      req.body.targetTableId,
+      actorFromRequest(req),
+    );
+    return success(res, { order });
+  });
+
+  mergeOrders = asyncHandler(async (req: Request, res: Response) => {
+    const order = await ordersModule.mergeOrders.execute(
+      req.tenantContext!.businessId,
+      String(req.params.id),
+      req.body.sourceOrderId,
+      actorFromRequest(req),
+    );
+    return success(res, { order });
+  });
+
   createChangeRequest = asyncHandler(async (req: Request, res: Response) => {
     const request = await ordersModule.createOrderChangeRequest.execute(
       req.tenantContext!.businessId,

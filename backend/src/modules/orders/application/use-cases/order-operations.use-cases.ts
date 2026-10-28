@@ -430,3 +430,59 @@ export class ListOrderChangeRequestsUseCase {
     return this.orderRepository.listChangeRequests(businessId, orderId);
   }
 }
+
+export class TransferOrderTableUseCase {
+  constructor(private readonly orderRepository: OrderRepository) {}
+
+  async execute(
+    businessId: string,
+    orderId: string,
+    targetTableId: string,
+    actor: { userId: string; userName?: string },
+  ) {
+    const order = await this.orderRepository.transferOrderTable(
+      businessId,
+      orderId,
+      targetTableId,
+    );
+
+    await tenantAuditService.log({
+      businessId,
+      userId: actor.userId,
+      action: 'order.table_transferred',
+      targetType: 'order',
+      targetId: orderId,
+      metadata: { targetTableId, userName: actor.userName },
+    });
+
+    return order;
+  }
+}
+
+export class MergeOrdersUseCase {
+  constructor(private readonly orderRepository: OrderRepository) {}
+
+  async execute(
+    businessId: string,
+    targetOrderId: string,
+    sourceOrderId: string,
+    actor: { userId: string; userName?: string },
+  ) {
+    const order = await this.orderRepository.mergeOrders(
+      businessId,
+      targetOrderId,
+      sourceOrderId,
+    );
+
+    await tenantAuditService.log({
+      businessId,
+      userId: actor.userId,
+      action: 'order.tables_merged',
+      targetType: 'order',
+      targetId: targetOrderId,
+      metadata: { sourceOrderId, userName: actor.userName },
+    });
+
+    return order;
+  }
+}

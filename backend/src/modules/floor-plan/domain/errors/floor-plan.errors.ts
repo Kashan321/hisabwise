@@ -19,6 +19,16 @@ export class InvalidTableStatusError extends AppError {
   }
 }
 
+export class TableHasOpenBillError extends AppError {
+  constructor() {
+    super(
+      ErrorCodes.INVALID_ORDER_STATUS,
+      'This table still has an unpaid bill. Take payment first.',
+      409,
+    );
+  }
+}
+
 export class FloorPlanNotFoundError extends AppError {
   constructor() {
     super(ErrorCodes.NOT_FOUND, 'Floor plan not found', 404);

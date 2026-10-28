@@ -81,4 +81,11 @@ floorPlanRouter.patch(
   floorPlanController.updateStatus,
 );
 
+floorPlanRouter.post(
+  '/tables/:id/free',
+  requireAuth,
+  requireAnyPermission('floor.manage', 'orders.manage', 'orders.serve'),
+  floorPlanController.freeTable,
+);
+
 floorPlanRouter.delete('/tables/:id', requireAuth, canManageFloor, floorPlanController.delete);

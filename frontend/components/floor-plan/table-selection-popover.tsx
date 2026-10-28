@@ -59,6 +59,7 @@ export function TableSelectionPopover({
   slug,
   activeOrder,
   onCycleStatus,
+  onRemoveTable,
   onClose,
 }: {
   table: FloorTable;
@@ -69,6 +70,7 @@ export function TableSelectionPopover({
   slug: string;
   activeOrder?: Order;
   onCycleStatus: () => void;
+  onRemoveTable?: () => void;
   onClose: () => void;
 }) {
   const formatMoney = useFormatMoney();
@@ -245,13 +247,23 @@ export function TableSelectionPopover({
         ) : (
           <div className="space-y-3">
             <p className="font-caption text-secondary font-bold capitalize">{statusLabel(table.status)}</p>
-            <button
-              type="button"
-              onClick={onCycleStatus}
-              className="w-full py-2 bg-primary-container text-on-primary-container font-caption font-bold rounded-lg hover:bg-primary hover:text-on-primary transition-colors"
-            >
-              Cycle status
-            </button>
+            {onRemoveTable ? (
+              <button
+                type="button"
+                onClick={onRemoveTable}
+                className="w-full min-h-14 py-2 border-2 border-error/40 text-error font-semibold rounded-lg hover:bg-error-container/30"
+              >
+                Remove table
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onCycleStatus}
+                className="w-full py-2 bg-primary-container text-on-primary-container font-caption font-bold rounded-lg hover:bg-primary hover:text-on-primary transition-colors"
+              >
+                Cycle status
+              </button>
+            )}
           </div>
         )}
       </div>

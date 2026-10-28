@@ -29,6 +29,12 @@ export class InvalidOrderStatusError extends AppError {
   }
 }
 
+export class TableNotAvailableError extends AppError {
+  constructor(message = 'Target table is not free') {
+    super(ErrorCodes.INVALID_ORDER_STATUS, message, 409);
+  }
+}
+
 export class TableNotFoundError extends AppError {
   constructor() {
     super(ErrorCodes.TABLE_NOT_FOUND, 'Table not found', 404);

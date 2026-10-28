@@ -60,6 +60,16 @@ export interface OrderRepository {
     tx?: import('@prisma/client').Prisma.TransactionClient,
   ): Promise<OrderEntity>;
   transferWaiter(businessId: string, orderId: string, waiterId: string): Promise<OrderEntity>;
+  transferOrderTable(
+    businessId: string,
+    orderId: string,
+    targetTableId: string,
+  ): Promise<OrderEntity>;
+  mergeOrders(
+    businessId: string,
+    targetOrderId: string,
+    sourceOrderId: string,
+  ): Promise<OrderEntity>;
   assignTableWaiter(businessId: string, tableId: string, waiterId: string | null): Promise<void>;
   createChangeRequest(
     businessId: string,

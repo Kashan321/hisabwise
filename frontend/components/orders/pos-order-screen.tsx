@@ -17,7 +17,7 @@ import {
 import { createPortal } from 'react-dom';
 import { apiFetch } from '@/lib/api/client';
 import { Button, Icon, Input, SelectField, Textarea } from '@/components/ui';
-import { Drawer } from '@/components/ui/modal';
+import { ConfirmDialog, Drawer } from '@/components/ui/modal';
 import { CustomerSearchField } from '@/components/orders/customer-search-field';
 import { HeldOrdersDrawer } from '@/components/orders/held-orders-drawer';
 import { OrderTypeBadge } from '@/components/orders/order-badges';
@@ -27,6 +27,12 @@ import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import { formatApiError } from '@/lib/api/errors';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
+import {
+  buildActiveOrderByTable,
+  CASHIER_STATUS_LABEL,
+  normalizeTableIdentifier,
+  resolveCashierTableStatus,
+} from '@/lib/floor-cashier/table-display';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import {
   type CartLine,
@@ -54,6 +60,7 @@ import {
 import {
   useCustomers,
   useFloorTables,
+  useOrders,
   useHeldOrders,
   useMenu,
   useOrder,
@@ -856,6 +863,15 @@ export function PosOrderScreen({
   const categories = menuData?.menu ?? [];
   const inventoryAvailability = menuData?.inventoryAvailability;
   const { data: tables = [] } = useFloorTables();
+  const { data: dineInOrdersData } = useOrders({
+    statusGroup: 'active',
+    orderType: 'DINE_IN',
+    limit: 200,
+  });
+  const activeOrderByTable = useMemo(
+    () => buildActiveOrderByTable(dineInOrdersData?.orders ?? []),
+    [dineInOrdersData?.orders],
+  );
   const queryClient = useQueryClient();
   const { data: customers = [] } = useCustomers();
   const { data: promotions = [] } = usePromotions(true);
@@ -902,6 +918,7 @@ export function PosOrderScreen({
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORY_ID);
   const [search, setSearch] = useState('');
   const [tableId, setTableId] = useState('');
+  const [pendingBusyTableId, setPendingBusyTableId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerName, setCustomerName] = useState('');
@@ -1042,8 +1059,11 @@ export function PosOrderScreen({
 
   useEffect(() => {
     const presetTableId = searchParams.get('tableId');
+    const forceDineIn = searchParams.get('dineIn') === '1';
     if (presetTableId) {
       setTableId(presetTableId);
+      setOrderMode('DINE_IN');
+    } else if (forceDineIn) {
       setOrderMode('DINE_IN');
     }
   }, [searchParams]);
@@ -2022,22 +2042,40 @@ export function PosOrderScreen({
             >
               No table assigned
             </button>
-            {tables.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTableId(t.id)}
-                aria-pressed={tableId === t.id}
-                aria-label={`Table ${t.tableIdentifier}`}
-                className={`shrink-0 px-3 py-2 rounded-lg border ${
-                  tableId === t.id
-                    ? 'bg-primary text-on-primary border-primary ring-2 ring-primary/25'
-                    : 'border-outline-variant/30 text-on-surface bg-surface'
-                }`}
-              >
-                <span className="text-sm font-bold tracking-wide">{t.tableIdentifier}</span>
-              </button>
-            ))}
+            {tables.map((t) => {
+              const orderOnTable = activeOrderByTable[t.id];
+              const cashierStatus = resolveCashierTableStatus(t, orderOnTable);
+              const isFree = cashierStatus === 'free';
+              const label = normalizeTableIdentifier(t.tableIdentifier);
+              const chipClass =
+                tableId === t.id
+                  ? 'bg-primary text-on-primary border-primary ring-2 ring-primary/25'
+                  : isFree
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-950'
+                    : 'border-orange-400 bg-orange-50 text-orange-950';
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    if (!isFree && !orderOnTable) return;
+                    if (!isFree && orderOnTable) {
+                      setPendingBusyTableId(t.id);
+                      return;
+                    }
+                    setTableId(t.id);
+                  }}
+                  aria-pressed={tableId === t.id}
+                  aria-label={`Table ${label} ${CASHIER_STATUS_LABEL[cashierStatus]}`}
+                  className={`shrink-0 min-h-14 px-3 py-2 rounded-lg border ${chipClass}`}
+                >
+                  <span className="text-sm font-bold tracking-wide block">{label}</span>
+                  <span className="text-[10px] font-semibold opacity-80">
+                    {CASHIER_STATUS_LABEL[cashierStatus]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
@@ -2674,6 +2712,20 @@ export function PosOrderScreen({
               ))}
             </div>
           </div>
+          {!existingOrderId && orderMode === 'DINE_IN' ? (
+            <div
+              className={`lg:hidden shrink-0 px-3 py-2 border-b ${BILL_SCREEN_BORDER} ${BILL_SCREEN_BG}`}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant mb-1">
+                Table
+              </p>
+              {dineInTablePicker ?? (
+                <p className="text-xs text-on-surface-variant py-1">
+                  No tables yet. Add them under Floor plan in the dashboard.
+                </p>
+              )}
+            </div>
+          ) : null}
           <div
             className={`flex-1 min-h-0 overflow-y-auto px-3 py-2 ${
               cartItemCount > 0 || existingOrderId ? 'max-lg:pb-32' : 'max-lg:pb-14'
@@ -2910,12 +2962,36 @@ export function PosOrderScreen({
       >
         <div className="space-y-3 lg:hidden">
           {!existingOrderId && orderTypeSelector}
-          {orderContextFields}
+          {!existingOrderId && orderMode === 'DINE_IN' && dineInTablePicker ? (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-on-surface-variant mb-1">
+                Table
+              </p>
+              {dineInTablePicker}
+            </div>
+          ) : null}
+          {!existingOrderId && orderMode !== 'DINE_IN' ? orderContextFields : null}
           {cartItemsList}
           {orderExtrasAccordion}
         </div>
       </Drawer>
       {PrintBillPrompt}
+
+      <ConfirmDialog
+        open={!!pendingBusyTableId}
+        onClose={() => setPendingBusyTableId(null)}
+        title="Add to existing bill?"
+        message="This table already has an open order. You can add more items to that same bill."
+        confirmLabel="Add to bill"
+        onConfirm={() => {
+          if (!pendingBusyTableId) return;
+          const order = activeOrderByTable[pendingBusyTableId];
+          setPendingBusyTableId(null);
+          if (order) {
+            router.push(posAddItemsHref(slug, order, waiterMode ? 'waiter/orders' : 'orders'));
+          }
+        }}
+      />
 
       {showHoldActions && (
         <HeldOrdersDrawer slug={slug} open={heldOrdersOpen} onClose={() => setHeldOrdersOpen(false)} />

@@ -104,6 +104,18 @@ export class FloorPlanController {
     return success(res, { table });
   });
 
+  freeTable = asyncHandler(async (req: Request, res: Response) => {
+    const table = await floorPlanModule.freeTable.execute(
+      req.tenantContext!.businessId,
+      String(req.params.id),
+      {
+        userId: req.tenantContext!.userId,
+        userName: req.tenantContext!.userName,
+      },
+    );
+    return success(res, { table });
+  });
+
   delete = asyncHandler(async (req: Request, res: Response) => {
     await floorPlanModule.deleteTable.execute(
       req.tenantContext!.businessId,

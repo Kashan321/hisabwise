@@ -3,7 +3,12 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BusinessLayout } from '@/components/layouts/business-layout';
-import { FloorPlanLiveBoard } from '@/components/floor-plan/floor-plan-live-board';
+import { CashierFloorScreen } from '@/components/floor-plan/cashier-floor-screen';
+import { nextNonOverlappingTableLayout } from '@/lib/floor-plan/table-layout-utils';
+import { normalizeTableIdentifier } from '@/lib/floor-cashier/table-display';
+import { useAuth } from '@/lib/auth/auth-context';
+import { hasPermission } from '@/lib/auth/permissions';
+import { useTenantRealtime } from '@/lib/hooks/use-tenant-realtime';
 import { FloorElementNode } from '@/components/floor-plan/floor-element-node';
 import { FloorPlanViewport } from '@/components/floor-plan/floor-plan-viewport';
 import { TableSelectionPopover } from '@/components/floor-plan/table-selection-popover';
@@ -164,7 +169,14 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
   const tables = scene?.tables ?? [];
   const elements = scene?.elements ?? [];
 
-  const { data: ordersData } = useOrders();
+  const { user } = useAuth();
+  const canEditLayout = hasPermission(user, 'floor.manage');
+  useTenantRealtime();
+
+  const { data: ordersData } = useOrders(
+    { statusGroup: 'active', orderType: 'DINE_IN', limit: 200 },
+    { refetchInterval: 15_000 },
+  );
   const orders = ordersData?.orders ?? [];
 
   const createTable = useCreateTable();
@@ -641,15 +653,17 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
     const size = defaultTableSize(tableForm.shape, capacity);
     const count = tables.length;
     try {
+      const idNorm = normalizeTableIdentifier(tableForm.tableIdentifier);
+      const slot = nextNonOverlappingTableLayout(tables, tableForm.shape, capacity);
       await createTable.mutateAsync({
         floorPlanId: activePlanId,
-        tableIdentifier: tableForm.tableIdentifier.trim(),
-        layoutX: 60 + FLOOR_WALL_THICKNESS + (count % 4) * (size.width + 24),
-        layoutY: 60 + FLOOR_WALL_THICKNESS + Math.floor(count / 4) * (size.height + 40),
+        tableIdentifier: idNorm,
+        layoutX: slot.layoutX,
+        layoutY: slot.layoutY,
         capacity,
         shape: tableForm.shape,
-        width: size.width,
-        height: size.height,
+        width: slot.width,
+        height: slot.height,
       });
       toast.success('Table added');
       setTableForm({ tableIdentifier: '', capacity: '4', shape: 'ROUND' });
@@ -821,18 +835,15 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
   return (
     <BusinessLayout slug={slug} fullBleed hideFab showHeaderTitle={false}>
       {screenMode === 'live' ? (
-        <FloorPlanLiveBoard
+        <CashierFloorScreen
           slug={slug}
           plans={plans}
           activePlanId={activePlanId}
           onActivePlanChange={setActivePlanId}
-          plan={plan}
           tables={tables}
-          elements={elements}
+          orders={orders}
           isLoading={isLoading}
-          activeOrderByTable={activeOrderByTable}
-          onCycleStatus={cycleStatus}
-          onMarkAvailable={markTableAvailable}
+          canEditLayout={canEditLayout}
           onEditLayout={() => setScreenMode('edit')}
           onAddTable={() => setTableModalOpen(true)}
         />
@@ -888,7 +899,7 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
               }`}
             >
               <Icon name="list" className="text-sm" />
-              List
+              List (remove tables)
             </button>
           </div>
         </div>
@@ -1037,6 +1048,14 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
                 slug={slug}
                 activeOrder={activeOrderByTable[table.id]}
                 onCycleStatus={() => cycleStatus(table)}
+                onRemoveTable={
+                  activeOrderByTable[table.id]
+                    ? undefined
+                    : () => {
+                        setDeleteTableTarget(table);
+                        setSelectedTableId(null);
+                      }
+                }
                 onClose={() => setSelectedTableId(null)}
               />
             );
@@ -1132,9 +1151,10 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
                           type="button"
                           title="Remove table"
                           onClick={() => setDeleteTableTarget(table)}
-                          className="p-2 rounded-lg hover:bg-error-container/40 text-error"
+                          className="min-h-14 px-3 rounded-lg hover:bg-error-container/40 text-error font-semibold text-sm inline-flex items-center gap-1"
                         >
                           <Icon name="delete" />
+                          Remove
                         </button>
                       </DataTableActions>
                     </DataTableCell>
@@ -1151,12 +1171,26 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
 
       <Modal
         open={tableModalOpen}
-        onClose={() => setTableModalOpen(false)}
+        onClose={() => {
+          setTableModalOpen(false);
+          setFormError('');
+          setTableForm({ tableIdentifier: '', capacity: '4', shape: 'ROUND' });
+        }}
         title="Add table"
         description="Choose shape and seats — chairs are placed automatically."
         footer={
           <>
-            <Button variant="ghost" onClick={() => setTableModalOpen(false)}>Cancel</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setTableModalOpen(false);
+                setFormError('');
+                setTableForm({ tableIdentifier: '', capacity: '4', shape: 'ROUND' });
+              }}
+            >
+              Cancel
+            </Button>
             <Button type="submit" form="fp-table-form" variant="primary" loading={createTable.isPending}>Add to floor</Button>
           </>
         }

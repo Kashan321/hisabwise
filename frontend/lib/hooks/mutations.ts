@@ -418,6 +418,64 @@ export function useUpdateTableStatus() {
   });
 }
 
+export function useFreeTable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tableId: string) =>
+      apiFetch<{ table: FloorTable }>(`/floor-plan/tables/${tableId}/free`, {
+        method: 'POST',
+      }).then((d) => d.table),
+    onSuccess: () => {
+      invalidateFloorPlan(qc);
+      reconcileInBackground(qc, ['orders']);
+    },
+  });
+}
+
+export function useTransferOrderTable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      targetTableId,
+    }: {
+      orderId: string;
+      targetTableId: string;
+    }) =>
+      apiFetch<{ order: Order }>(`/orders/${orderId}/transfer-table`, {
+        method: 'POST',
+        body: JSON.stringify({ targetTableId }),
+      }).then((d) => d.order),
+    onSuccess: (order) => {
+      replaceOrderInCache(qc, order);
+      invalidateFloorPlan(qc);
+      reconcileInBackground(qc, ['orders']);
+    },
+  });
+}
+
+export function useMergeOrders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      targetOrderId,
+      sourceOrderId,
+    }: {
+      targetOrderId: string;
+      sourceOrderId: string;
+    }) =>
+      apiFetch<{ order: Order }>(`/orders/${targetOrderId}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ sourceOrderId }),
+      }).then((d) => d.order),
+    onSuccess: (order) => {
+      replaceOrderInCache(qc, order);
+      invalidateFloorPlan(qc);
+      reconcileInBackground(qc, ['orders']);
+    },
+  });
+}
+
 export function useUpdateTableLayout() {
   const qc = useQueryClient();
   return useMutation({

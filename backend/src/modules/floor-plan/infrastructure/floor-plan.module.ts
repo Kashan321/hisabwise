@@ -1,6 +1,7 @@
 import { CreateTableUseCase } from '../application/use-cases/create-table.use-case';
 import { ListTablesUseCase } from '../application/use-cases/list-tables.use-case';
 import { UpdateTableUseCase } from '../application/use-cases/update-table.use-case';
+import { FreeTableUseCase } from '../application/use-cases/free-table.use-case';
 import { UpdateTableStatusUseCase } from '../application/use-cases/update-table-status.use-case';
 import { DeleteTableUseCase } from '../application/use-cases/delete-table.use-case';
 import { ListPlansUseCase } from '../application/use-cases/list-plans.use-case';
@@ -34,5 +35,6 @@ export const floorPlanModule = {
   createTable: new CreateTableUseCase(tableRepository, planRepository),
   updateTable: new UpdateTableUseCase(tableRepository),
   updateTableStatus: new UpdateTableStatusUseCase(tableRepository),
+  freeTable: new FreeTableUseCase(tableRepository),
   deleteTable: new DeleteTableUseCase(tableRepository),
 };

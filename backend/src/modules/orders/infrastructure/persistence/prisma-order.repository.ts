@@ -40,6 +40,7 @@ import {
   OrderNotModifiableError,
   OrderNotFoundError,
   StaffNotFoundError,
+  TableNotAvailableError,
   TableNotFoundError,
 } from '../../domain/errors/order.errors';
 import { buildOrderListWhere } from './order-list.where-builder';
@@ -644,7 +645,25 @@ export class PrismaOrderRepository implements OrderRepository {
     const client = tx ?? prisma;
     const existing = await client.order.findFirst({ where: { id: orderId, businessId } });
     if (!existing) throw new OrderNotFoundError();
-    if (existing.isDraft) throw new OrderIsDraftError();
+
+    if (existing.isDraft) {
+      if (status !== 'CANCELLED') {
+        throw new OrderIsDraftError();
+      }
+      const order = await client.order.update({
+        where: { id: orderId },
+        data: { status: 'CANCELLED', isDraft: false },
+        include: orderInclude,
+      });
+      if (existing.tableId) {
+        await client.floorTable.update({
+          where: { id: existing.tableId },
+          data: { status: PrismaTableStatus.AVAILABLE },
+        });
+        await syncTableWaiterAssignment(client, businessId, existing.tableId);
+      }
+      return mapOrderResolved(order);
+    }
 
     const updateOptions = normalizeUpdateStatusOptions(options);
     const actorId = updateOptions.actorId;
@@ -703,7 +722,7 @@ export class PrismaOrderRepository implements OrderRepository {
     if (status === 'COMPLETED' && existing.tableId) {
       await client.floorTable.update({
         where: { id: existing.tableId },
-        data: { status: PrismaTableStatus.NEEDS_CLEANING },
+        data: { status: PrismaTableStatus.AVAILABLE },
       });
     }
 
@@ -999,6 +1018,169 @@ export class PrismaOrderRepository implements OrderRepository {
     });
 
     return mapOrderResolved(order);
+  }
+
+  async transferOrderTable(
+    businessId: string,
+    orderId: string,
+    targetTableId: string,
+  ): Promise<OrderEntity> {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, businessId },
+      include: { items: true },
+    });
+    if (!order) throw new OrderNotFoundError();
+    if (!order.tableId) {
+      throw new InvalidOrderStatusError('Order is not linked to a table');
+    }
+    if (['COMPLETED', 'CANCELLED'].includes(order.status)) {
+      throw new InvalidOrderStatusError('Cannot move a closed order');
+    }
+
+    const target = await prisma.floorTable.findFirst({
+      where: { id: targetTableId, businessId },
+    });
+    if (!target) throw new TableNotFoundError();
+    if (target.id === order.tableId) return mapOrderResolved(order);
+
+    const blocking = await prisma.order.findFirst({
+      where: {
+        businessId,
+        tableId: targetTableId,
+        isDraft: false,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      },
+    });
+    if (blocking) throw new TableNotAvailableError();
+
+    if (target.status !== PrismaTableStatus.AVAILABLE) {
+      throw new TableNotAvailableError('Target table must be free');
+    }
+
+    const sourceTableId = order.tableId;
+
+    const updated = await getRawPrismaClient().$transaction(async (tx) => {
+      await tx.floorTable.update({
+        where: { id: sourceTableId },
+        data: { status: PrismaTableStatus.AVAILABLE, assignedWaiterId: null },
+      });
+      await tx.floorTable.update({
+        where: { id: targetTableId },
+        data: { status: PrismaTableStatus.OCCUPIED },
+      });
+      return tx.order.update({
+        where: { id: orderId },
+        data: { tableId: targetTableId },
+        include: orderInclude,
+      });
+    }, PRISMA_TRANSACTION_OPTIONS);
+
+    emitDomainEvent('table.status_changed', { businessId, tableId: sourceTableId });
+    emitDomainEvent('table.status_changed', { businessId, tableId: targetTableId });
+    emitDomainEvent('order.table_transferred', { businessId, orderId, targetTableId, sourceTableId });
+
+    return mapOrderResolved(updated);
+  }
+
+  async mergeOrders(
+    businessId: string,
+    targetOrderId: string,
+    sourceOrderId: string,
+  ): Promise<OrderEntity> {
+    if (targetOrderId === sourceOrderId) {
+      throw new InvalidOrderStatusError('Choose a different table to merge');
+    }
+
+    const [target, source] = await Promise.all([
+      prisma.order.findFirst({
+        where: { id: targetOrderId, businessId },
+        include: { items: { include: { modifiers: true } } },
+      }),
+      prisma.order.findFirst({
+        where: { id: sourceOrderId, businessId },
+        include: { items: { include: { modifiers: true } } },
+      }),
+    ]);
+    if (!target || !source) throw new OrderNotFoundError();
+    if (['COMPLETED', 'CANCELLED'].includes(target.status) || ['COMPLETED', 'CANCELLED'].includes(source.status)) {
+      throw new InvalidOrderStatusError('Cannot merge closed orders');
+    }
+    if (!target.tableId || !source.tableId) {
+      throw new InvalidOrderStatusError('Both orders must be dine-in table orders');
+    }
+
+    const updated = await getRawPrismaClient().$transaction(async (tx) => {
+      for (const item of source.items) {
+        const created = await tx.orderItem.create({
+          data: {
+            orderId: targetOrderId,
+            menuItemId: item.menuItemId,
+            menuItemName: item.menuItemName,
+            variantId: item.variantId,
+            variantName: item.variantName,
+            variantPrice: item.variantPrice,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+            weightG: item.weightG,
+            unitPricePerKg: item.unitPricePerKg,
+            customizationNotes: item.customizationNotes,
+            isKitchenAddition: true,
+            modifiers: {
+              create: item.modifiers.map((m) => ({
+                modifierOptionId: m.modifierOptionId,
+                modifierName: m.modifierName,
+                priceAdjustment: m.priceAdjustment,
+              })),
+            },
+          },
+        });
+        await assignNewItemsToKitchenTicket(tx, {
+          businessId,
+          orderId: targetOrderId,
+          orderStatus: target.status,
+          itemIds: [created.id],
+        });
+      }
+
+      const merged = await tx.order.update({
+        where: { id: targetOrderId },
+        data: {
+          subtotal: Number(target.subtotal) + Number(source.subtotal),
+          discountAmount: Number(target.discountAmount) + Number(source.discountAmount),
+          taxAmount: Number(target.taxAmount) + Number(source.taxAmount),
+          serviceAmount: Number(target.serviceAmount) + Number(source.serviceAmount),
+          deliveryAmount: Number(target.deliveryAmount) + Number(source.deliveryAmount),
+          totalAmount: Number(target.totalAmount) + Number(source.totalAmount),
+        },
+        include: orderInclude,
+      });
+
+      await tx.order.update({
+        where: { id: sourceOrderId },
+        data: { status: 'CANCELLED' },
+      });
+
+      await tx.floorTable.update({
+        where: { id: source.tableId },
+        data: { status: PrismaTableStatus.AVAILABLE, assignedWaiterId: null },
+      });
+
+      await clearActiveKitchenTicketsForOrder(tx, sourceOrderId);
+      await syncTableWaiterAssignment(tx, businessId, source.tableId);
+
+      return merged;
+    }, PRISMA_TRANSACTION_OPTIONS);
+
+    emitDomainEvent('table.status_changed', { businessId, tableId: source.tableId });
+    emitDomainEvent('order.tables_merged', {
+      businessId,
+      targetOrderId,
+      sourceOrderId,
+      sourceTableId: source.tableId,
+    });
+
+    return mapOrderResolved(updated);
   }
 
   async assignTableWaiter(
