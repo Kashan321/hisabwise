@@ -59,6 +59,8 @@ function registerEventBridge() {
     'order.delivery_updated': 1,
     'order.rider_assigned': 1,
     'order.waiter_transferred': 1,
+    'order.table_transferred': 1,
+    'order.tables_merged': 1,
     'order.change_request_created': 1,
     'order.change_request_reviewed': 1,
     'table.status_changed': 1,

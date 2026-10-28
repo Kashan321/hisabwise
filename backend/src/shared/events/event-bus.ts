@@ -30,6 +30,18 @@ export type DomainEventMap = {
   };
   'order.rider_assigned': { orderId: string; businessId: string; riderId: string };
   'order.waiter_transferred': { orderId: string; businessId: string; waiterId: string };
+  'order.table_transferred': {
+    orderId: string;
+    businessId: string;
+    targetTableId: string;
+    sourceTableId: string;
+  };
+  'order.tables_merged': {
+    businessId: string;
+    targetOrderId: string;
+    sourceOrderId: string;
+    sourceTableId: string;
+  };
   'order.change_request_created': {
     orderId: string;
     businessId: string;

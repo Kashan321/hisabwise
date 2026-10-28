@@ -1041,7 +1041,14 @@ export class PrismaOrderRepository implements OrderRepository {
       where: { id: targetTableId, businessId },
     });
     if (!target) throw new TableNotFoundError();
-    if (target.id === order.tableId) return mapOrderResolved(order);
+    if (target.id === order.tableId) {
+      const unchanged = await prisma.order.findFirst({
+        where: { id: orderId, businessId },
+        include: orderInclude,
+      });
+      if (!unchanged) throw new OrderNotFoundError();
+      return mapOrderResolved(unchanged);
+    }
 
     const blocking = await prisma.order.findFirst({
       where: {
@@ -1075,8 +1082,16 @@ export class PrismaOrderRepository implements OrderRepository {
       });
     }, PRISMA_TRANSACTION_OPTIONS);
 
-    emitDomainEvent('table.status_changed', { businessId, tableId: sourceTableId });
-    emitDomainEvent('table.status_changed', { businessId, tableId: targetTableId });
+    emitDomainEvent('table.status_changed', {
+      businessId,
+      tableId: sourceTableId,
+      status: PrismaTableStatus.AVAILABLE,
+    });
+    emitDomainEvent('table.status_changed', {
+      businessId,
+      tableId: targetTableId,
+      status: PrismaTableStatus.OCCUPIED,
+    });
     emitDomainEvent('order.table_transferred', { businessId, orderId, targetTableId, sourceTableId });
 
     return mapOrderResolved(updated);
@@ -1108,6 +1123,7 @@ export class PrismaOrderRepository implements OrderRepository {
     if (!target.tableId || !source.tableId) {
       throw new InvalidOrderStatusError('Both orders must be dine-in table orders');
     }
+    const sourceTableId = source.tableId;
 
     const updated = await getRawPrismaClient().$transaction(async (tx) => {
       for (const item of source.items) {
@@ -1162,22 +1178,26 @@ export class PrismaOrderRepository implements OrderRepository {
       });
 
       await tx.floorTable.update({
-        where: { id: source.tableId },
+        where: { id: sourceTableId },
         data: { status: PrismaTableStatus.AVAILABLE, assignedWaiterId: null },
       });
 
       await clearActiveKitchenTicketsForOrder(tx, sourceOrderId);
-      await syncTableWaiterAssignment(tx, businessId, source.tableId);
+      await syncTableWaiterAssignment(tx, businessId, sourceTableId);
 
       return merged;
     }, PRISMA_TRANSACTION_OPTIONS);
 
-    emitDomainEvent('table.status_changed', { businessId, tableId: source.tableId });
+    emitDomainEvent('table.status_changed', {
+      businessId,
+      tableId: sourceTableId,
+      status: PrismaTableStatus.AVAILABLE,
+    });
     emitDomainEvent('order.tables_merged', {
       businessId,
       targetOrderId,
       sourceOrderId,
-      sourceTableId: source.tableId,
+      sourceTableId,
     });
 
     return mapOrderResolved(updated);
