@@ -767,6 +767,46 @@ export function useAddOrderItems() {
   });
 }
 
+export function useUpdateOrderPricing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      promotionId,
+      discountType,
+      discountValue,
+      taxRate,
+      serviceRate,
+      notes,
+    }: {
+      orderId: string;
+      promotionId?: string | null;
+      discountType?: 'PERCENTAGE' | 'FIXED';
+      discountValue?: number;
+      taxRate?: number;
+      serviceRate?: number;
+      notes?: string;
+    }) =>
+      apiFetch<{ order: Order }>(`/orders/${orderId}/pricing`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          promotionId,
+          discountType,
+          discountValue,
+          taxRate,
+          serviceRate,
+          notes,
+        }),
+      }),
+    onSuccess: (data) => {
+      replaceOrderInCache(qc, data.order);
+      qc.invalidateQueries({ queryKey: ['orders', data.order.id] });
+      reconcileInBackground(qc, ['orders']);
+      reconcileInBackground(qc, ['waiter']);
+    },
+  });
+}
+
 export function useAdjustOrderItemQuantity() {
   const qc = useQueryClient();
   return useMutation({

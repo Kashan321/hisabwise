@@ -80,6 +80,18 @@ function assertCanModifyOrderItems(order: {
   }
 }
 
+function assertCanUpdateOrderPricing(order: {
+  status: string;
+  paymentStatus: string | null;
+}) {
+  if (order.paymentStatus === 'PAID') {
+    throw new OrderNotModifiableError('Cannot change pricing on a paid order');
+  }
+  if (order.status === 'COMPLETED' || order.status === 'CANCELLED') {
+    throw new OrderNotModifiableError('Cannot change pricing on a completed or cancelled order');
+  }
+}
+
 async function syncTableWaiterAssignment(
   tx: {
     order: { count: (args: { where: Record<string, unknown> }) => Promise<number> };
@@ -773,6 +785,37 @@ export class PrismaOrderRepository implements OrderRepository {
         include: orderInclude,
       });
     }, PRISMA_TRANSACTION_OPTIONS);
+
+    return mapOrderResolved(order);
+  }
+
+  async updatePricing(
+    businessId: string,
+    orderId: string,
+    pricing: OrderPricingResult,
+    notes?: string,
+  ): Promise<OrderEntity> {
+    const existing = await prisma.order.findFirst({
+      where: { id: orderId, businessId },
+      include: { items: true },
+    });
+    if (!existing) throw new OrderNotFoundError();
+    assertCanUpdateOrderPricing(existing);
+
+    const order = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        promotionId: pricing.promotionId ?? null,
+        subtotal: pricing.subtotal,
+        discountAmount: pricing.discountAmount,
+        taxAmount: pricing.taxAmount,
+        serviceAmount: pricing.serviceAmount,
+        deliveryAmount: pricing.deliveryAmount,
+        totalAmount: pricing.totalAmount,
+        ...(notes !== undefined ? { notes } : {}),
+      },
+      include: orderInclude,
+    });
 
     return mapOrderResolved(order);
   }

@@ -10,6 +10,7 @@ import {
   CreateOrderChangeRequestInput,
   DeliveryStatus,
   ReviewOrderChangeRequestInput,
+  UpdateOrderPricingInput,
 } from '../../domain/entities/order.entity';
 import { InvalidPaymentError, OrderNotFoundError } from '../../domain/errors/order.errors';
 import { OrderRepository, OrderPricingPort } from '../../domain/repositories/order.repository';
@@ -42,6 +43,50 @@ export class AddOrderItemsUseCase {
       targetType: 'order',
       targetId: orderId,
       metadata: { userName: actor.userName, itemCount: input.items.length },
+    });
+
+    return order;
+  }
+}
+
+export class UpdateOrderPricingUseCase {
+  constructor(
+    private readonly orderRepository: OrderRepository,
+    private readonly pricingService: OrderPricingPort,
+  ) {}
+
+  async execute(
+    businessId: string,
+    orderId: string,
+    input: UpdateOrderPricingInput,
+    actor: { userId: string; userName?: string },
+  ) {
+    const pricing = await this.pricingService.recalculateExistingOrder(
+      businessId,
+      orderId,
+      input,
+    );
+    const order = await this.orderRepository.updatePricing(
+      businessId,
+      orderId,
+      pricing,
+      input.notes,
+    );
+
+    emitDomainEvent('order.pricing_updated', { orderId, businessId });
+
+    await tenantAuditService.log({
+      businessId,
+      userId: actor.userId,
+      action: 'order.pricing_updated',
+      targetType: 'order',
+      targetId: orderId,
+      metadata: {
+        userName: actor.userName,
+        promotionId: pricing.promotionId ?? null,
+        discountAmount: pricing.discountAmount,
+        totalAmount: pricing.totalAmount,
+      },
     });
 
     return order;

@@ -768,7 +768,7 @@ export function OverviewDashboard({ slug }: { slug: string }) {
               primary
             />
             <QuickActionTile href={`/${slug}/kitchen`} icon="skillet" label="Kitchen" />
-            <QuickActionTile href={`/${slug}/terminal`} icon="point_of_sale" label="POS Terminal" />
+            {/* POS Terminal disabled — see POS_TERMINAL_ENABLED in lib/feature-flags.ts */}
             <QuickActionTile href={`/${slug}/menu`} icon="restaurant_menu" label="Edit menu" />
             <QuickActionTile href={`/${slug}/reports`} icon="analytics" label="Reports" />
             <QuickActionTile href={`/${slug}/delivery`} icon="delivery_dining" label="Delivery" />
@@ -875,7 +875,7 @@ export function OverviewDashboard({ slug }: { slug: string }) {
             <div className="grid grid-cols-1 gap-2">
               <QuickActionCompact href={`/${slug}/reservations`} icon="event_available" label="Reservations" />
               <QuickActionCompact href={`/${slug}/floor-plan`} icon="table_restaurant" label="Floor plan" />
-              <QuickActionCompact href={`/${slug}/terminal`} icon="point_of_sale" label="POS Terminal" />
+              {/* POS Terminal disabled — see POS_TERMINAL_ENABLED in lib/feature-flags.ts */}
               <QuickActionCompact href={`/${slug}/qr`} icon="qr_code" label="QR codes" />
             </div>
           </div>

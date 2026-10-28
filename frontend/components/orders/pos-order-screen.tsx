@@ -3,7 +3,18 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch } from '@/lib/api/client';
 import { Button, Icon, Input, SelectField, Textarea } from '@/components/ui';
 import { Drawer } from '@/components/ui/modal';
@@ -14,7 +25,7 @@ import { PosLiveOrdersStripe } from '@/components/orders/pos-live-orders-stripe'
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
 import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import { formatApiError } from '@/lib/api/errors';
-import type { Customer, MenuItem, Order, OrderItem } from '@/lib/api/types';
+import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import {
   type CartLine,
@@ -35,6 +46,7 @@ import {
   useAdjustOrderItemQuantity,
   useCreateOrder,
   useSendOrderToKitchen,
+  useUpdateOrderPricing,
   useUpdateOrderStatus,
 } from '@/lib/hooks/mutations';
 import {
@@ -51,6 +63,7 @@ import { orderToCartRecord } from '@/lib/order-cart';
 import { formatOrderLabel } from '@/lib/order-display';
 import {
   canAddItemsToOpenTab,
+  canUpdateOrderPricing,
   isOpenTabOrderType,
   posAddItemsHref,
 } from '@/lib/open-tab-order';
@@ -105,6 +118,70 @@ const BILL_PANEL_SHADOW = 'shadow-[0_1px_4px_rgba(0,0,0,0.05)]';
 const CART_LINE_PRICE_CLASS =
   'font-mono text-lg sm:text-xl font-bold text-on-surface shrink-0 tabular-nums leading-tight';
 
+const POPOVER_WIDTH_PX = { sm: 160, md: 176, lg: 208 } as const;
+
+function BillPanelPopover({
+  open,
+  anchorRef,
+  align,
+  width = 'md',
+  maxHeightClass = 'max-h-56',
+  onClose,
+  children,
+}: {
+  open: boolean;
+  anchorRef: RefObject<HTMLElement | null>;
+  align: 'start' | 'end';
+  width?: keyof typeof POPOVER_WIDTH_PX;
+  maxHeightClass?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const menuWidth = POPOVER_WIDTH_PX[width];
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) return;
+
+    const update = () => {
+      const rect = anchorRef.current!.getBoundingClientRect();
+      let left = align === 'end' ? rect.right - menuWidth : rect.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
+      setCoords({ top: rect.top - 6, left });
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, align, menuWidth, anchorRef]);
+
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[200]" aria-hidden onClick={onClose} />
+      <div
+        className={`fixed z-[201] ${maxHeightClass} overflow-y-auto rounded-lg border border-outline-variant/25 bg-surface shadow-lg py-1`}
+        style={{
+          width: menuWidth,
+          left: coords.left,
+          top: coords.top,
+          transform: 'translateY(-100%)',
+        }}
+        role="listbox"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 function RatePercentPicker({
   shortLabel,
   value,
@@ -129,16 +206,6 @@ function RatePercentPicker({
     setDraft(value);
   }, [open, value]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [open]);
-
   function applyCustom() {
     const trimmed = draft.trim();
     if (!trimmed) return;
@@ -162,72 +229,173 @@ function RatePercentPicker({
       >
         {shortLabel} {value}%
       </button>
-      {open && (
-        <div
-          className="absolute bottom-full right-0 z-[60] mb-1 w-44 rounded-lg border border-outline-variant/25 bg-surface shadow-lg py-1"
-          role="listbox"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {onSelectDefault && defaultPercentLabel != null && (
+      <BillPanelPopover
+        open={open}
+        anchorRef={rootRef}
+        align="start"
+        width="md"
+        onClose={() => setOpen(false)}
+      >
+        {onSelectDefault && defaultPercentLabel != null && (
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low text-on-surface-variant"
+            onClick={() => {
+              onSelectDefault();
+              setOpen(false);
+            }}
+          >
+            Shop default ({defaultPercentLabel}%)
+          </button>
+        )}
+        {presets.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low tabular-nums ${
+              String(preset) === value ? 'font-bold text-primary bg-primary-container/25' : ''
+            }`}
+            onClick={() => {
+              onSelect(String(preset));
+              setOpen(false);
+            }}
+          >
+            {preset}%
+          </button>
+        ))}
+        <div className="border-t border-outline-variant/15 px-2 py-2 space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
+            Custom %
+          </label>
+          <div className="flex gap-1">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyCustom();
+              }}
+              className="flex-1 min-w-0 h-8 px-2 rounded-md border border-outline-variant/25 text-xs font-mono"
+            />
             <button
               type="button"
-              className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low text-on-surface-variant"
-              onClick={() => {
-                onSelectDefault();
-                setOpen(false);
-              }}
+              onClick={applyCustom}
+              className="shrink-0 h-8 px-2 rounded-md bg-primary text-on-primary text-xs font-semibold"
             >
-              Shop default ({defaultPercentLabel}%)
+              Set
             </button>
-          )}
-          {presets.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low tabular-nums ${
-                String(preset) === value ? 'font-bold text-primary bg-primary-container/25' : ''
-              }`}
-              onClick={() => {
-                onSelect(String(preset));
-                setOpen(false);
-              }}
-            >
-              {preset}%
-            </button>
-          ))}
-          <div className="border-t border-outline-variant/15 px-2 py-2 space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-on-surface-variant">
-              Custom %
-            </label>
-            <div className="flex gap-1">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.01}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') applyCustom();
-                }}
-                className="flex-1 min-w-0 h-8 px-2 rounded-md border border-outline-variant/25 text-xs font-mono"
-              />
-              <button
-                type="button"
-                onClick={applyCustom}
-                className="shrink-0 h-8 px-2 rounded-md bg-primary text-on-primary text-xs font-semibold"
-              >
-                Set
-              </button>
-            </div>
           </div>
         </div>
-      )}
+      </BillPanelPopover>
     </div>
   );
 }
 
 const DISCOUNT_PERCENT_PRESETS = [5, 10, 15, 20];
+
+function promotionQuickSummary(promotion: Promotion | null | undefined): string {
+  if (!promotion) return 'Off';
+  const value = Number(promotion.discountValue);
+  if (promotion.discountType === 'PERCENTAGE') return `${value}%`;
+  return 'Fixed';
+}
+
+function PromotionQuickPicker({
+  promotionId,
+  promotions,
+  onClear,
+  onSelect,
+  onOpenDetails,
+}: {
+  promotionId: string;
+  promotions: Promotion[];
+  onClear: () => void;
+  onSelect: (id: string) => void;
+  onOpenDetails: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = promotions.find((p) => p.id === promotionId) ?? null;
+
+  const summary = promotionQuickSummary(selected);
+
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="text-[10px] font-mono font-semibold text-primary tabular-nums px-1.5 py-0.5 rounded-md border border-primary/25 bg-primary-container/30 hover:bg-primary-container/50 cursor-pointer whitespace-nowrap max-w-[88px] truncate"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        title={selected?.title ?? 'No promotion'}
+      >
+        Promo {summary}
+      </button>
+      <BillPanelPopover
+        open={open}
+        anchorRef={rootRef}
+        align="start"
+        width="lg"
+        onClose={() => setOpen(false)}
+      >
+        <button
+          type="button"
+          className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low ${
+            !promotionId ? 'font-bold text-primary bg-primary-container/25' : ''
+          }`}
+          onClick={() => {
+            onClear();
+            setOpen(false);
+          }}
+        >
+          Off
+        </button>
+        {promotions.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-on-surface-variant">No active promotions</p>
+        ) : (
+          promotions.map((promotion) => (
+            <button
+              key={promotion.id}
+              type="button"
+              className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low ${
+                promotionId === promotion.id
+                  ? 'font-bold text-primary bg-primary-container/25'
+                  : ''
+              }`}
+              onClick={() => {
+                onSelect(promotion.id);
+                setOpen(false);
+              }}
+            >
+              {promotion.title}
+              <span className="block text-[10px] text-on-surface-variant tabular-nums">
+                {promotion.discountType === 'PERCENTAGE'
+                  ? `${Number(promotion.discountValue)}% off`
+                  : `${Number(promotion.discountValue)} off`}
+              </span>
+            </button>
+          ))
+        )}
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low text-on-surface-variant border-t border-outline-variant/15"
+          onClick={() => {
+            setOpen(false);
+            onOpenDetails();
+          }}
+        >
+          More options…
+        </button>
+      </BillPanelPopover>
+    </div>
+  );
+}
 
 function DiscountQuickPicker({
   discountType,
@@ -244,16 +412,6 @@ function DiscountQuickPicker({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [open]);
 
   const summary =
     discountType === 'PERCENTAGE' && discountValue.trim()
@@ -276,51 +434,51 @@ function DiscountQuickPicker({
       >
         Discount {summary}
       </button>
-      {open && (
-        <div
-          className="absolute bottom-full right-0 z-[60] mb-1 w-40 rounded-lg border border-outline-variant/25 bg-surface shadow-lg py-1"
-          role="listbox"
-          onClick={(e) => e.stopPropagation()}
+      <BillPanelPopover
+        open={open}
+        anchorRef={rootRef}
+        align="end"
+        width="sm"
+        onClose={() => setOpen(false)}
+      >
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low"
+          onClick={() => {
+            onClear();
+            setOpen(false);
+          }}
         >
+          Off
+        </button>
+        {DISCOUNT_PERCENT_PRESETS.map((preset) => (
           <button
+            key={preset}
             type="button"
-            className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low"
+            className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low tabular-nums ${
+              discountType === 'PERCENTAGE' && discountValue === String(preset)
+                ? 'font-bold text-primary bg-primary-container/25'
+                : ''
+            }`}
             onClick={() => {
-              onClear();
+              onSelectPercent(String(preset));
               setOpen(false);
             }}
           >
-            Off
+            {preset}%
           </button>
-          {DISCOUNT_PERCENT_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low tabular-nums ${
-                discountType === 'PERCENTAGE' && discountValue === String(preset)
-                  ? 'font-bold text-primary bg-primary-container/25'
-                  : ''
-              }`}
-              onClick={() => {
-                onSelectPercent(String(preset));
-                setOpen(false);
-              }}
-            >
-              {preset}%
-            </button>
-          ))}
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low text-on-surface-variant border-t border-outline-variant/15"
-            onClick={() => {
-              setOpen(false);
-              onOpenDetails();
-            }}
-          >
-            More options…
-          </button>
-        </div>
-      )}
+        ))}
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-xs hover:bg-surface-container-low text-on-surface-variant border-t border-outline-variant/15"
+          onClick={() => {
+            setOpen(false);
+            onOpenDetails();
+          }}
+        >
+          More options…
+        </button>
+      </BillPanelPopover>
     </div>
   );
 }
@@ -718,8 +876,13 @@ export function PosOrderScreen({
 
   const createOrder = useCreateOrder();
   const addOrderItems = useAddOrderItems();
+  const updateOrderPricing = useUpdateOrderPricing();
   const adjustOrderItem = useAdjustOrderItemQuantity();
   const sendToKitchen = useSendOrderToKitchen();
+  const pricingHydratedForOrderRef = useRef<string | null>(null);
+  const userEditedPricingRef = useRef(false);
+  const pricingExplicitlyClearedRef = useRef(false);
+  const lastPricingSaveKeyRef = useRef('');
 
   const existingOrderId = searchParams.get('orderId');
   const heldOrderId = searchParams.get('heldOrderId');
@@ -897,9 +1060,51 @@ export function PosOrderScreen({
     if (existingOrder.notes) setOrderNotes(existingOrder.notes);
   }, [existingOrder]);
 
+  useEffect(() => {
+    if (!existingOrderId || !existingOrder) return;
+    if (pricingHydratedForOrderRef.current === existingOrderId) return;
+    pricingHydratedForOrderRef.current = existingOrderId;
+
+    if (existingOrder.promotionId) {
+      setPromotionId(existingOrder.promotionId);
+      setDiscountType('');
+      setDiscountValue('');
+    }
+
+    const subtotal = Number(existingOrder.subtotal);
+    const discount = Number(existingOrder.discountAmount);
+    const taxableBase = subtotal - discount;
+    if (taxableBase > 0.001) {
+      const taxPct = (Number(existingOrder.taxAmount) / taxableBase) * 100;
+      const servicePct = (Number(existingOrder.serviceAmount) / taxableBase) * 100;
+      if (Number.isFinite(taxPct) && taxPct >= 0) {
+        setTaxRateCustomized(true);
+        setTaxRatePercent(String(Math.round(taxPct * 100) / 100));
+      }
+      if (Number.isFinite(servicePct) && servicePct >= 0) {
+        setServiceRatePercent(String(Math.round(servicePct * 100) / 100));
+      }
+    }
+  }, [existingOrderId, existingOrder]);
+
   const orderLocked = Boolean(
     existingOrderId && existingOrder && !canAddItemsToOpenTab(existingOrder),
   );
+  const pricingLocked = Boolean(
+    existingOrder && !canUpdateOrderPricing(existingOrder),
+  );
+  const orderPricingEditable = !pricingLocked;
+
+  useEffect(() => {
+    userEditedPricingRef.current = false;
+    lastPricingSaveKeyRef.current = '';
+    pricingExplicitlyClearedRef.current = false;
+    setExtrasOpen(false);
+  }, [existingOrderId]);
+
+  const markExistingOrderPricingEdited = useCallback(() => {
+    if (existingOrderId) userEditedPricingRef.current = true;
+  }, [existingOrderId]);
   const posBasePath = waiterMode ? 'waiter/orders' : 'orders';
   const newBillHref = `/${slug}/${posBasePath}/new`;
 
@@ -1093,6 +1298,7 @@ export function PosOrderScreen({
       syncAddDraftCounts();
     }
     setCartOpen(false);
+    setExtrasOpen(false);
     router.replace(newBillHref);
   }
 
@@ -1174,9 +1380,117 @@ export function PosOrderScreen({
     business,
   );
 
+  const existingLinesSubtotal = useMemo(() => {
+    if (!existingOrder?.items?.length) return Number(existingOrder?.subtotal ?? 0);
+    return existingOrder.items.reduce((sum, item) => sum + Number(item.lineTotal), 0);
+  }, [existingOrder]);
+
+  const combinedBillPricing = useMemo(() => {
+    const taxRate = resolveTaxRatePercent(
+      taxRateCustomized ? taxRatePercent : '',
+      business,
+    );
+    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100 || 0));
+    const deliveryAmount = Number(existingOrder?.deliveryAmount ?? 0);
+    const combinedSubtotal = existingLinesSubtotal + cartSubtotal;
+    return estimateOrderTotal(combinedSubtotal, selectedPromotion, {
+      taxRate,
+      serviceRate,
+      manualDiscount,
+      deliveryAmount,
+    });
+  }, [
+    existingLinesSubtotal,
+    cartSubtotal,
+    selectedPromotion,
+    manualDiscount,
+    taxRatePercent,
+    taxRateCustomized,
+    serviceRatePercent,
+    business,
+    existingOrder?.deliveryAmount,
+  ]);
+
   const existingOrderTotal = Number(existingOrder?.totalAmount ?? 0);
   const newItemsTotal = pricing.totalAmount;
-  const estimatedBillTotal = existingOrderId ? existingOrderTotal + newItemsTotal : newItemsTotal;
+  const estimatedBillTotal = existingOrderId
+    ? combinedBillPricing.totalAmount
+    : pricing.totalAmount;
+
+  const persistExistingOrderPricing = useCallback(async () => {
+    if (!existingOrderId || !orderPricingEditable || !existingOrder) return;
+    if (discountType && !manualDiscount) return;
+
+    const taxRate = resolveTaxRatePercent(
+      taxRateCustomized ? taxRatePercent : '',
+      business,
+    );
+    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100 || 0));
+
+    const patch: {
+      promotionId?: string | null;
+      discountType?: 'PERCENTAGE' | 'FIXED';
+      discountValue?: number;
+      taxRate: number;
+      serviceRate: number;
+    } = { taxRate, serviceRate };
+
+    if (promotionId) {
+      patch.promotionId = promotionId;
+    } else if (manualDiscount) {
+      patch.promotionId = null;
+      patch.discountType = manualDiscount.type;
+      patch.discountValue = manualDiscount.value;
+    } else if (pricingExplicitlyClearedRef.current) {
+      patch.promotionId = null;
+      pricingExplicitlyClearedRef.current = false;
+    } else if (existingOrder.promotionId) {
+      patch.promotionId = existingOrder.promotionId;
+    }
+
+    const saveKey = JSON.stringify(patch);
+    if (saveKey === lastPricingSaveKeyRef.current) return;
+
+    try {
+      await updateOrderPricing.mutateAsync({ orderId: existingOrderId, ...patch });
+      lastPricingSaveKeyRef.current = saveKey;
+    } catch (err) {
+      toast.error(formatApiError(err));
+    }
+  }, [
+    existingOrderId,
+    orderPricingEditable,
+    existingOrder,
+    discountType,
+    manualDiscount,
+    promotionId,
+    taxRateCustomized,
+    taxRatePercent,
+    serviceRatePercent,
+    business,
+    updateOrderPricing,
+    toast,
+  ]);
+
+  useEffect(() => {
+    if (!existingOrderId || !orderPricingEditable || !userEditedPricingRef.current) return;
+    const timer = window.setTimeout(() => {
+      void persistExistingOrderPricing();
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    existingOrderId,
+    orderPricingEditable,
+    promotionId,
+    discountType,
+    discountValue,
+    taxRatePercent,
+    taxRateCustomized,
+    serviceRatePercent,
+    manualDiscount,
+    persistExistingOrderPricing,
+  ]);
+
   const existingOrderLines = existingOrder?.items ?? [];
   const isHeldDraftOrder = Boolean(
     existingOrderId && existingOrder?.isDraft && !existingOrder.sentToKitchenAt,
@@ -1641,9 +1955,11 @@ export function PosOrderScreen({
   const isSubmitting =
     createOrder.isPending ||
     addOrderItems.isPending ||
+    updateOrderPricing.isPending ||
     adjustOrderItem.isPending ||
     updateOrderStatus.isPending ||
     sendToKitchen.isPending;
+
   const showHoldActions = !waiterMode && !existingOrderId;
 
   const orderTypeSelector = (
@@ -1839,9 +2155,14 @@ export function PosOrderScreen({
     </>
   );
 
-  const orderExtrasAccordion =
-    !existingOrderId && !waiterMode ? (
-      <div className="rounded-lg border border-outline-variant/20 overflow-visible bg-surface">
+  const showOrderExtras = !waiterMode;
+
+  const orderExtrasAccordion = showOrderExtras ? (
+      <div
+        className={`rounded-lg border border-outline-variant/20 overflow-visible bg-surface ${
+          !orderPricingEditable ? 'opacity-60 pointer-events-none' : ''
+        }`}
+      >
         <div
           className="flex items-center gap-1.5 px-2 py-2 hover:bg-surface-container-low/80"
           role="presentation"
@@ -1857,7 +2178,9 @@ export function PosOrderScreen({
               className="text-lg text-on-surface-variant shrink-0"
             />
             <span className="text-xs font-semibold text-on-surface-variant truncate">
-              Charges & discount
+              {existingOrderId && updateOrderPricing.isPending ? 'Saving… · ' : ''}
+              {discountLabel ? `${discountLabel} · ` : ''}
+              Promotions & charges
             </span>
           </button>
           <div className="flex items-center gap-1 shrink-0">
@@ -1867,10 +2190,12 @@ export function PosOrderScreen({
               presets={TAX_RATE_PRESETS}
               defaultPercentLabel={configuredTaxPercent}
               onSelectDefault={() => {
+                markExistingOrderPricingEdited();
                 setTaxRateCustomized(false);
                 setTaxRatePercent('');
               }}
               onSelect={(percent) => {
+                markExistingOrderPricingEdited();
                 setTaxRateCustomized(true);
                 setTaxRatePercent(percent);
               }}
@@ -1880,17 +2205,42 @@ export function PosOrderScreen({
               shortLabel="Service"
               value={serviceRatePercent}
               presets={SERVICE_RATE_PRESETS}
-              onSelect={(percent) => setServiceRatePercent(percent)}
+              onSelect={(percent) => {
+                markExistingOrderPricingEdited();
+                setServiceRatePercent(percent);
+              }}
+            />
+            <span className="text-[10px] text-on-surface-variant">·</span>
+            <PromotionQuickPicker
+              promotionId={promotionId}
+              promotions={applicablePromotions}
+              onClear={() => {
+                markExistingOrderPricingEdited();
+                if (existingOrder?.promotionId) {
+                  pricingExplicitlyClearedRef.current = true;
+                }
+                setPromotionId('');
+              }}
+              onSelect={(id) => {
+                markExistingOrderPricingEdited();
+                setPromotionId(id);
+                setDiscountType('');
+                setDiscountValue('');
+              }}
+              onOpenDetails={() => setExtrasOpen(true)}
             />
             <DiscountQuickPicker
               discountType={discountType}
               discountValue={discountValue}
               onClear={() => {
+                markExistingOrderPricingEdited();
+                pricingExplicitlyClearedRef.current = true;
                 setDiscountType('');
                 setDiscountValue('');
                 setPromotionId('');
               }}
               onSelectPercent={(percent) => {
+                markExistingOrderPricingEdited();
                 setDiscountType('PERCENTAGE');
                 setDiscountValue(percent);
                 setPromotionId('');
@@ -1901,12 +2251,42 @@ export function PosOrderScreen({
         </div>
         {extrasOpen && (
           <div className="px-3 py-2.5 space-y-2 border-t border-outline-variant/15 max-h-[min(200px,28vh)] overflow-y-auto overscroll-contain">
+            <SelectField
+              label="Promotion"
+              value={promotionId}
+              onChange={(e) => {
+                markExistingOrderPricingEdited();
+                const next = e.target.value;
+                if (!next && existingOrder?.promotionId) {
+                  pricingExplicitlyClearedRef.current = true;
+                }
+                setPromotionId(next);
+                if (next) {
+                  setDiscountType('');
+                  setDiscountValue('');
+                }
+              }}
+              options={[
+                { value: '', label: 'No promotion' },
+                ...applicablePromotions.map((p) => ({
+                  value: p.id,
+                  label: formatPromotionLabel(p, currency),
+                })),
+              ]}
+            />
+            {applicablePromotions.length === 0 && (
+              <p className="font-caption text-on-surface-variant -mt-1">
+                No active promotions — use manual discount below or create one under Promotions.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <SelectField
-                label="Discount"
+                label="Manual discount"
                 value={discountType}
                 onChange={(e) => {
+                  markExistingOrderPricingEdited();
                   const next = e.target.value as '' | 'PERCENTAGE' | 'FIXED';
+                  if (!next) pricingExplicitlyClearedRef.current = true;
                   setDiscountType(next);
                   if (next) setPromotionId('');
                   else setDiscountValue('');
@@ -1923,6 +2303,7 @@ export function PosOrderScreen({
                 value={discountValue}
                 disabled={!discountType}
                 onChange={(e) => {
+                  markExistingOrderPricingEdited();
                   setDiscountValue(e.target.value);
                   if (e.target.value.trim()) setPromotionId('');
                 }}
@@ -1990,8 +2371,16 @@ export function PosOrderScreen({
           </div>
           {cartLines.length > 0 && (
             <div className="flex justify-between gap-3">
-              <span className="text-on-surface-variant">New items</span>
-              <span className={CART_LINE_PRICE_CLASS}>+{formatMoney(newItemsTotal)}</span>
+              <span className="text-on-surface-variant">New items (subtotal)</span>
+              <span className={CART_LINE_PRICE_CLASS}>+{formatMoney(cartSubtotal)}</span>
+            </div>
+          )}
+          {(discountLabel || combinedBillPricing.discountAmount > 0) && (
+            <div className="flex justify-between gap-3">
+              <span className="text-on-surface-variant">Discount</span>
+              <span className={CART_LINE_PRICE_CLASS}>
+                −{formatMoney(combinedBillPricing.discountAmount)}
+              </span>
             </div>
           )}
           <div className="flex justify-between gap-3 pt-1">
@@ -2178,7 +2567,14 @@ export function PosOrderScreen({
         >
           {orderLocked ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>This order cannot accept more items.</span>
+              <span>
+                This order cannot accept more items.
+                {!pricingLocked && (
+                  <span className="block mt-0.5 font-normal opacity-90">
+                    Promotions and discounts can still be updated on the bill panel.
+                  </span>
+                )}
+              </span>
               <Link
                 href={waiterMode ? `/${slug}/waiter/orders` : `/${slug}/orders`}
                 className="font-body-emphasis underline"
@@ -2441,7 +2837,14 @@ export function PosOrderScreen({
                     />
                   )}
                 </div>
-                <div className="shrink-0 px-2 pb-1 overflow-visible">{orderExtrasAccordion}</div>
+                <div className="shrink-0 px-2 pb-1 overflow-visible">
+                  {orderExtrasAccordion}
+                  {existingOrderId && pricingLocked && (
+                    <p className="font-caption text-error px-1 pt-1">
+                      Paid or closed — pricing cannot be changed.
+                    </p>
+                  )}
+                </div>
                 <div
                   className={`shrink-0 flex gap-2 items-stretch px-2 py-2 pt-1 border-t ${BILL_SCREEN_BORDER} ${BILL_SCREEN_SURFACE}`}
                 >

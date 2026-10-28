@@ -1,5 +1,5 @@
 import type { AuthUser } from '@/lib/api/types';
-import { SUPPLIER_EXPENSES_ENABLED } from '@/lib/feature-flags';
+import { POS_TERMINAL_ENABLED, SUPPLIER_EXPENSES_ENABLED } from '@/lib/feature-flags';
 
 export function hasPermission(user: AuthUser | null | undefined, permission: string): boolean {
   if (!user) return false;
@@ -65,7 +65,9 @@ export const TENANT_ROUTE_RULES: TenantRouteRule[] = [
   { path: 'rider', permissions: ['delivery.execute', 'delivery.view', 'delivery.manage'] },
   { path: 'orders/new', permissions: ['orders.create', 'orders.manage', 'orders.serve'] },
   { path: 'orders', permissions: ['orders.view', 'orders.manage'] },
-  { path: 'terminal', permissions: ['orders.create', 'orders.manage', 'cash.shift'] },
+  ...(POS_TERMINAL_ENABLED
+    ? [{ path: 'terminal', permissions: ['orders.create', 'orders.manage', 'cash.shift'] }]
+    : []),
   { path: 'cashier', permissions: ['cash.shift', 'orders.manage', 'kitchen.manage'] },
   { path: 'shifts', permissions: ['reports.view', 'orders.manage', '*'] },
   { path: 'business-days', permissions: ['reports.view', 'business.manage', '*'] },
@@ -202,7 +204,9 @@ export function getDefaultRoute(user: AuthUser | null | undefined, slug: string)
     return `/${slug}/dashboard`;
   }
   if (hasAnyPermission(user, ['orders.view', 'orders.create'])) return `/${slug}/orders`;
-  if (hasPermission(user, 'cash.shift')) return `/${slug}/terminal`;
+  if (hasPermission(user, 'cash.shift')) {
+    return POS_TERMINAL_ENABLED ? `/${slug}/terminal` : `/${slug}/cashier`;
+  }
   if (hasPermission(user, 'kitchen.manage')) return `/${slug}/kitchen`;
   if (hasAnyPermission(user, ['customers.view', 'customers.manage'])) {
     return `/${slug}/customers`;
@@ -218,7 +222,9 @@ export function getKitchenExitRoute(user: AuthUser | null | undefined, slug: str
     return `/${slug}/dashboard`;
   }
   if (hasAnyPermission(user, ['orders.view', 'orders.create'])) return `/${slug}/orders`;
-  if (hasPermission(user, 'cash.shift')) return `/${slug}/terminal`;
+  if (hasPermission(user, 'cash.shift')) {
+    return POS_TERMINAL_ENABLED ? `/${slug}/terminal` : `/${slug}/cashier`;
+  }
   if (hasAnyPermission(user, ['customers.view', 'customers.manage'])) {
     return `/${slug}/customers`;
   }

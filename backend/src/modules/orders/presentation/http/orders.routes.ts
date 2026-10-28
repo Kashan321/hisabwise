@@ -23,6 +23,7 @@ import {
   reviewChangeRequestSchema,
   transferWaiterSchema,
   updateDeliveryStatusSchema,
+  updateOrderPricingSchema,
   updateOrderStatusSchema,
 } from './orders.validators';
 
@@ -77,6 +78,14 @@ ordersRouter.post(
   canServeOrders,
   validateBody(addOrderItemsSchema),
   ordersController.addItems,
+);
+
+ordersRouter.patch(
+  '/:id/pricing',
+  requireAuth,
+  canServeOrders,
+  validateBody(updateOrderPricingSchema),
+  ordersController.updatePricing,
 );
 
 ordersRouter.patch(

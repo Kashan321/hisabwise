@@ -33,10 +33,17 @@ function mapPromotion(promotion: {
 
 export class PrismaPromotionRepository implements PromotionRepository {
   async findAll(businessId: string, activeOnly = false): Promise<PromotionEntity[]> {
+    const now = new Date();
     const promotions = await prisma.promotion.findMany({
       where: {
         businessId,
-        ...(activeOnly ? { isActive: true } : {}),
+        ...(activeOnly
+          ? {
+              isActive: true,
+              startDate: { lte: now },
+              endDate: { gte: now },
+            }
+          : {}),
       },
       orderBy: { startDate: 'desc' },
     });

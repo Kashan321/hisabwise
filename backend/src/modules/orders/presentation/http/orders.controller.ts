@@ -107,6 +107,16 @@ export class OrdersController {
     return success(res, { order });
   });
 
+  updatePricing = asyncHandler(async (req: Request, res: Response) => {
+    const order = await ordersModule.updateOrderPricing.execute(
+      req.tenantContext!.businessId,
+      String(req.params.id),
+      req.body,
+      actorFromRequest(req),
+    );
+    return success(res, { order });
+  });
+
   adjustOrderItemQuantity = asyncHandler(async (req: Request, res: Response) => {
     const order = await ordersModule.adjustOrderItemQuantity.execute(
       req.tenantContext!.businessId,

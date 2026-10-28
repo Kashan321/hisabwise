@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   requireAuth,
+  requireAnyPermission,
   requirePermission,
 } from '../../../auth/presentation/middlewares/require-auth.middleware';
 import { validateBody } from '../../../../shared/http/validate.middleware';
@@ -20,8 +21,19 @@ export const promotionsRouter = Router();
 promotionsRouter.get(
   '/',
   requireAuth,
-  canView,
   validateQuery(listPromotionsQuerySchema),
+  (req, res, next) => {
+    const activeOnly = req.query.activeOnly === 'true';
+    const guard = activeOnly
+      ? requireAnyPermission(
+          'promotions.manage',
+          'orders.manage',
+          'orders.create',
+          'orders.serve',
+        )
+      : canView;
+    return guard(req, res, next);
+  },
   promotionsController.list,
 );
 

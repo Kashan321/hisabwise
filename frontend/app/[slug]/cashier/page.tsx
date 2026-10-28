@@ -121,12 +121,7 @@ export default function CashierPage({ params }: { params: Promise<{ slug: string
         description="Open your shift, track cash, and close with a blind count."
         actions={
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <Link href={`/${slug}/terminal`} className="flex-1 sm:flex-none">
-              <Button variant="primary" className="w-full justify-center">
-                <Icon name="point_of_sale" className="text-base" />
-                POS Terminal
-              </Button>
-            </Link>
+            {/* POS Terminal disabled — see POS_TERMINAL_ENABLED in lib/feature-flags.ts */}
             {canViewShiftHistory ? (
               <Link href={`/${slug}/shifts`} className="flex-1 sm:flex-none">
                 <Button variant="secondary" className="w-full justify-center">

@@ -203,6 +203,15 @@ export interface AddOrderItemsInput {
   serviceRate?: number;
 }
 
+export interface UpdateOrderPricingInput {
+  promotionId?: string | null;
+  discountType?: 'PERCENTAGE' | 'FIXED';
+  discountValue?: number;
+  taxRate?: number;
+  serviceRate?: number;
+  notes?: string;
+}
+
 export interface PricedOrderItem {
   menuItemId: string;
   menuItemName: string;

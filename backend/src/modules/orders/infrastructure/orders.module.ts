@@ -5,6 +5,7 @@ import { GetOrderFiltersUseCase } from '../application/use-cases/get-order-filte
 import { UpdateOrderStatusUseCase } from '../application/use-cases/update-order-status.use-case';
 import {
   AddOrderItemsUseCase,
+  UpdateOrderPricingUseCase,
   AdjustOrderItemQuantityUseCase,
   AssignRiderUseCase,
   AssignTableWaiterUseCase,
@@ -36,6 +37,7 @@ export const ordersModule = {
   getOrder: new GetOrderUseCase(orderRepository),
   updateOrderStatus: new UpdateOrderStatusUseCase(orderRepository),
   addOrderItems: new AddOrderItemsUseCase(orderRepository, pricingService),
+  updateOrderPricing: new UpdateOrderPricingUseCase(orderRepository, pricingService),
   adjustOrderItemQuantity: new AdjustOrderItemQuantityUseCase(orderRepository),
   sendOrderToKitchen: new SendOrderToKitchenUseCase(orderRepository),
   assignRider: new AssignRiderUseCase(orderRepository),

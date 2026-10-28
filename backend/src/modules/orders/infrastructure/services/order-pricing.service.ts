@@ -6,10 +6,13 @@ import {
   CreateOrderItemInput,
   OrderPricingResult,
   PricedOrderItem,
+  UpdateOrderPricingInput,
 } from '../../domain/entities/order.entity';
 import {
   InvalidOrderItemError,
   MenuItemUnavailableError,
+  OrderNotFoundError,
+  OrderNotModifiableError,
   PromotionNotApplicableError,
 } from '../../domain/errors/order.errors';
 import { OrderPricingPort } from '../../domain/repositories/order.repository';
@@ -23,6 +26,18 @@ import {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function assertCanUpdateOrderPricing(order: {
+  status: string;
+  paymentStatus: string | null;
+}) {
+  if (order.paymentStatus === 'PAID') {
+    throw new OrderNotModifiableError('Cannot change pricing on a paid order');
+  }
+  if (order.status === 'COMPLETED' || order.status === 'CANCELLED') {
+    throw new OrderNotModifiableError('Cannot change pricing on a completed or cancelled order');
+  }
 }
 
 function calculatePromotionDiscount(
@@ -274,6 +289,7 @@ async function getBusinessPricingDefaults(businessId: string): Promise<{
 function buildPricingResult(
   pricedItems: PricedOrderItem[],
   options?: {
+    subtotalOverride?: number;
     promotionId?: string;
     promotionTitle?: string;
     discountAmount?: number;
@@ -283,7 +299,10 @@ function buildPricingResult(
     deliveryAmount?: number;
   },
 ): OrderPricingResult {
-  const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.lineTotal, 0));
+  const subtotal = roundMoney(
+    options?.subtotalOverride ??
+      pricedItems.reduce((sum, item) => sum + item.lineTotal, 0),
+  );
   const discountAmount = options?.discountAmount ?? 0;
   const discountedSubtotal = roundMoney(subtotal - discountAmount);
   const taxRate = options?.taxRate ?? options?.businessDefaultTaxRate ?? ORDER.DEFAULT_TAX_RATE;
@@ -381,6 +400,97 @@ export class OrderPricingService implements OrderPricingPort {
       serviceRate: input.serviceRate,
       businessDefaultTaxRate: businessDefaults.defaultTaxRate,
       deliveryAmount: 0,
+    });
+  }
+
+  async recalculateExistingOrder(
+    businessId: string,
+    orderId: string,
+    input: UpdateOrderPricingInput,
+  ): Promise<OrderPricingResult> {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, businessId },
+      include: { items: true },
+    });
+
+    if (!order) {
+      throw new OrderNotFoundError();
+    }
+
+    assertCanUpdateOrderPricing({
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+    });
+
+    const subtotal = roundMoney(
+      order.items.reduce((sum, item) => sum + Number(item.lineTotal), 0),
+    );
+
+    let discountAmount = 0;
+    let promotionId: string | undefined;
+    let promotionTitle: string | undefined;
+
+    const promotionToApply =
+      input.promotionId === null
+        ? undefined
+        : input.promotionId ?? order.promotionId ?? undefined;
+
+    if (promotionToApply) {
+      const promotion = await prisma.promotion.findFirst({
+        where: { id: promotionToApply, businessId },
+      });
+
+      if (!promotion) {
+        throw new PromotionNotApplicableError('Promotion not found');
+      }
+
+      if (!promotion.isActive) {
+        throw new PromotionNotApplicableError('Promotion is not active');
+      }
+
+      const now = new Date();
+      if (now < promotion.startDate || now > promotion.endDate) {
+        throw new PromotionNotApplicableError('Promotion is not valid for the current date');
+      }
+
+      discountAmount = calculatePromotionDiscount(
+        subtotal,
+        promotion.discountType,
+        Number(promotion.discountValue),
+      );
+      promotionId = promotion.id;
+      promotionTitle = promotion.title;
+    } else if (input.discountType && input.discountValue != null && input.discountValue > 0) {
+      discountAmount = calculatePromotionDiscount(subtotal, input.discountType, input.discountValue);
+    } else if (input.promotionId === null) {
+      discountAmount = 0;
+    } else if (!input.discountType && order.promotionId == null && Number(order.discountAmount) > 0) {
+      discountAmount = roundMoney(Number(order.discountAmount));
+    }
+
+    const businessDefaults = await getBusinessPricingDefaults(businessId);
+    const deliveryAmount = Number(order.deliveryAmount);
+
+    const discountedSubtotal = roundMoney(subtotal - discountAmount);
+    let taxRate = input.taxRate;
+    let serviceRate = input.serviceRate;
+
+    if (taxRate == null && discountedSubtotal > 0) {
+      taxRate = Number(order.taxAmount) / discountedSubtotal;
+    }
+    if (serviceRate == null && discountedSubtotal > 0) {
+      serviceRate = Number(order.serviceAmount) / discountedSubtotal;
+    }
+
+    return buildPricingResult([], {
+      subtotalOverride: subtotal,
+      promotionId,
+      promotionTitle,
+      discountAmount,
+      taxRate,
+      serviceRate,
+      businessDefaultTaxRate: businessDefaults.defaultTaxRate,
+      deliveryAmount,
     });
   }
 }

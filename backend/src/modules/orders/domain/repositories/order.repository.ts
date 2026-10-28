@@ -3,6 +3,7 @@ import {
   CompleteOrderInput,
   CreateOrderChangeRequestInput,
   CreateOrderInput,
+  UpdateOrderPricingInput,
   DeliveryStatus,
   ListOrdersFilters,
   ListOrdersResult,
@@ -37,6 +38,12 @@ export interface OrderRepository {
     businessId: string,
     orderId: string,
     pricing: import('../entities/order.entity').OrderPricingResult,
+  ): Promise<OrderEntity>;
+  updatePricing(
+    businessId: string,
+    orderId: string,
+    pricing: import('../entities/order.entity').OrderPricingResult,
+    notes?: string,
   ): Promise<OrderEntity>;
   adjustOrderItemQuantity(
     businessId: string,
@@ -78,5 +85,10 @@ export interface OrderPricingPort {
   calculateAdditionalItems(
     businessId: string,
     input: AddOrderItemsInput,
+  ): Promise<import('../entities/order.entity').OrderPricingResult>;
+  recalculateExistingOrder(
+    businessId: string,
+    orderId: string,
+    input: UpdateOrderPricingInput,
   ): Promise<import('../entities/order.entity').OrderPricingResult>;
 }

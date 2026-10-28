@@ -76,6 +76,39 @@ export const addOrderItemsSchema = z.object({
   serviceRate: z.number().min(0).max(1).optional(),
 });
 
+export const updateOrderPricingSchema = z
+  .object({
+    promotionId: z.string().uuid().nullable().optional(),
+    discountType: discountTypeEnum.optional(),
+    discountValue: z.number().min(0).optional(),
+    taxRate: z.number().min(0).max(1).optional(),
+    serviceRate: z.number().min(0).max(1).optional(),
+    notes: z.string().trim().max(500).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.discountType && (data.discountValue == null || data.discountValue <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'discountValue must be greater than 0 when discountType is set',
+        path: ['discountValue'],
+      });
+    }
+    if (data.discountType === 'PERCENTAGE' && data.discountValue != null && data.discountValue > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Percentage discount cannot exceed 100',
+        path: ['discountValue'],
+      });
+    }
+    if (data.promotionId && data.discountType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Use either a promotion or a manual discount, not both',
+        path: ['discountType'],
+      });
+    }
+  });
+
 export const adjustOrderItemQuantitySchema = z.object({
   delta: z.number().int().min(-99).max(99).refine((value) => value !== 0, {
     message: 'delta must not be zero',

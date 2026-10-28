@@ -54,6 +54,7 @@ function registerEventBridge() {
     'order.placed': 1,
     'order.status_changed': 1,
     'order.items_added': 1,
+    'order.pricing_updated': 1,
     'order.items_removed': 1,
     'order.delivery_updated': 1,
     'order.rider_assigned': 1,

@@ -21,6 +21,7 @@ export type DomainEventMap = {
     paymentStatus?: string | null;
   };
   'order.items_added': { orderId: string; businessId: string };
+  'order.pricing_updated': { orderId: string; businessId: string };
   'order.items_removed': { orderId: string; businessId: string };
   'order.delivery_updated': {
     orderId: string;
