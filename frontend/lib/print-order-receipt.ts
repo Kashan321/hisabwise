@@ -1,7 +1,7 @@
 import type { Order, OrderPayment } from '@/lib/api/types';
 import { buildCode128Svg } from '@/lib/barcode-code128';
 import { DEFAULT_CURRENCY } from '@/lib/currencies';
-import { paymentMethodLabel } from '@/lib/payment-methods';
+import { isOrderPaidForReceipt, paymentMethodLabel } from '@/lib/payment-methods';
 import { formatCurrency } from '@/lib/format-currency';
 import { formatRestaurantReceiptPhones } from '@/lib/business-phones';
 import { APP_NAME } from '@/lib/config';
@@ -46,8 +46,16 @@ const ORDER_TYPE_LABELS: Record<string, string> = {
   QR: 'QR',
 };
 
-function copyTypeLabel(copyType: ReceiptCopyType, template: ReceiptTemplate): string {
-  return copyType === 'kitchen' ? template.kitchenCopyLabel : template.customerCopyLabel;
+const UNPAID_RECEIPT_BANNER = '***UNPAID***';
+
+function copyTypeLabel(
+  copyType: ReceiptCopyType,
+  template: ReceiptTemplate,
+  order: Order,
+): string {
+  if (copyType === 'kitchen') return template.kitchenCopyLabel;
+  if (!isOrderPaidForReceipt(order)) return UNPAID_RECEIPT_BANNER;
+  return template.customerCopyLabel;
 }
 
 function escapeHtml(value: string): string {
@@ -610,6 +618,12 @@ function buildReceiptStyles(
       border: 2px solid #000;
       padding: 2px 8px;
     }
+    .receipt.customer-copy .copy-banner.unpaid {
+      border: none;
+      padding: 4px 0 2px;
+      font-size: ${xl}px;
+      letter-spacing: 0.8px;
+    }
     .receipt.customer-copy .customer-totals-box {
       border: 1px solid #000;
       padding: 4px 5px;
@@ -672,7 +686,10 @@ function buildReceiptStyles(
       .item, .totals, .payment-section, .footer-compact {
         page-break-inside: avoid;
       }
-      .copy-banner {
+      .copy-banner.unpaid {
+        border: none !important;
+      }
+      .copy-banner:not(.unpaid) {
         background: #fff !important;
         color: #000 !important;
         border: 2px solid #000 !important;
@@ -764,9 +781,10 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
     businessPhoneSecondary,
   );
   const currency = options.currency?.trim() || DEFAULT_CURRENCY;
-  const copyLabel = copyTypeLabel(copyType, template);
+  const copyLabel = copyTypeLabel(copyType, template, order);
   const widthMm = options.receiptWidthMm ?? template.receiptWidthMm ?? RECEIPT_WIDTH_MM;
   const isKitchen = copyType === 'kitchen';
+  const isUnpaidCustomerCopy = !isKitchen && copyLabel === UNPAID_RECEIPT_BANNER;
 
   const printScript = autoPrint ? buildPrintScript(widthMm) : '';
 
@@ -798,7 +816,7 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
       <div class="store-name">${escapeHtml(businessName)}</div>
       ${!isKitchen && addressLine ? `<div class="store-address">${escapeHtml(addressLine)}</div>` : ''}
       ${!isKitchen && restaurantPhonesJoined ? `<div class="store-phone">Tel: ${escapeHtml(restaurantPhonesJoined)}</div>` : ''}
-      <div class="copy-banner ${isKitchen ? 'kitchen' : ''}">${escapeHtml(copyLabel)}</div>
+      <div class="copy-banner ${isKitchen ? 'kitchen' : ''}${isUnpaidCustomerCopy ? ' unpaid' : ''}">${escapeHtml(copyLabel)}</div>
     </header>
 
     <div class="rule"></div>

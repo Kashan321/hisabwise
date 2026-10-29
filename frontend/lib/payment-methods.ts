@@ -62,6 +62,22 @@ export function orderNeedsPaymentOnDelivery(order: {
   return order.status !== 'COMPLETED' && order.paymentStatus !== 'PAID';
 }
 
+/** True when a customer receipt should show the paid / customer-copy banner (not UNPAID). */
+export function isOrderPaidForReceipt(order: {
+  paymentStatus?: string | null;
+  totalAmount?: string | number;
+  payments?: Array<{ amount: string | number }> | null;
+}): boolean {
+  if (order.paymentStatus === 'PAID') return true;
+  const payments = order.payments ?? [];
+  if (payments.length > 0 && order.totalAmount != null) {
+    const total = Number(order.totalAmount);
+    const paid = payments.reduce((sum, line) => sum + Number(line.amount ?? 0), 0);
+    if (paid >= total - 0.001) return true;
+  }
+  return false;
+}
+
 export function buildCompleteOrderPaymentPayload(
   payments: OrderPaymentLine[],
   totalAmount: number,
