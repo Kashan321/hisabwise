@@ -15,6 +15,7 @@ import {
   createBusinessSchema,
   createPlatformAdminSchema,
   platformLoginSchema,
+  sendWelcomeEmailSchema,
   updateBusinessSubscriptionSchema,
   updatePlatformAdminSchema,
   updatePlatformSettingsSchema,
@@ -52,6 +53,11 @@ import {
 import { uploadMenuGalleryCsv } from '../../../menu-gallery/presentation/middlewares/upload-gallery-csv.middleware';
 import { uploadSingleFile } from '../../../files/presentation/middlewares/upload.middleware';
 import { uploadFileQuerySchema } from '../../../files/presentation/http/files.validators';
+import { platformTenantAlertsController } from '../../../tenant-alerts/presentation/http/tenant-alerts.controller';
+import {
+  createPlatformTenantAlertSchema,
+  updatePlatformTenantAlertSchema,
+} from '../../../tenant-alerts/presentation/http/tenant-alerts.validators';
 import {
   listPlatformDemoQuerySchema,
   updateDemoRequestStatusSchema,
@@ -144,6 +150,13 @@ platformBusinessRouter.post(
   requirePlatformAuth,
   requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
   platformBusinessController.unblockSubscription,
+);
+platformBusinessRouter.post(
+  '/:id/welcome-email',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(sendWelcomeEmailSchema),
+  platformBusinessController.sendWelcomeEmail,
 );
 platformBusinessRouter.delete(
   '/:id',
@@ -439,6 +452,45 @@ platformMenuGalleryRouter.post(
 );
 
 platformRouter.use('/menu-gallery', platformMenuGalleryRouter);
+
+const platformTenantAlertsRouter = Router();
+
+platformTenantAlertsRouter.get(
+  '/',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_VIEW),
+  platformTenantAlertsController.list,
+);
+platformTenantAlertsRouter.post(
+  '/',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(createPlatformTenantAlertSchema),
+  platformTenantAlertsController.create,
+);
+platformTenantAlertsRouter.patch(
+  '/:id',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateBody(updatePlatformTenantAlertSchema),
+  platformTenantAlertsController.update,
+);
+platformTenantAlertsRouter.delete(
+  '/:id',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  platformTenantAlertsController.delete,
+);
+platformTenantAlertsRouter.post(
+  '/upload',
+  requirePlatformAuth,
+  requirePlatformPermission(PLATFORM_PERMISSIONS.BUSINESSES_MANAGE),
+  validateQuery(uploadFileQuerySchema),
+  uploadSingleFile,
+  platformTenantAlertsController.uploadImage,
+);
+
+platformRouter.use('/tenant-alerts', platformTenantAlertsRouter);
 
 const platformReceiptRouter = Router();
 

@@ -21,6 +21,7 @@ import { inventoryRouter } from '../../modules/inventory/presentation/http/inven
 import { cashShiftRouter } from '../../modules/cash-shift/presentation/http/cash-shift.routes';
 import { businessDayRouter } from '../../modules/business-day/presentation/http/business-day.routes';
 import { feedbackRouter } from '../../modules/feedback/presentation/http/feedback.routes';
+import { tenantAlertsRouter } from '../../modules/tenant-alerts/presentation/http/tenant-alerts.routes';
 
 export function createV1Router(): Router {
   const router = Router();
@@ -49,6 +50,7 @@ export function createV1Router(): Router {
   router.use('/cash-shifts', cashShiftRouter);
   router.use('/business-days', businessDayRouter);
   router.use('/feedback', feedbackRouter);
+  router.use('/alerts', tenantAlertsRouter);
   router.use('/platform', platformRouter);
 
   return router;

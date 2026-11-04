@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { validateBody } from '../../../../shared/http/validate.middleware';
 import { authController } from './auth.controller';
-import { loginSchema, registerSchema } from './auth.validators';
+import { loginSchema, registerSchema, sendRegisterOtpSchema } from './auth.validators';
 import { requireAuth, requirePermission } from '../middlewares/require-auth.middleware';
 
 const authRateLimiter = rateLimit({
@@ -17,6 +17,13 @@ const authRateLimiter = rateLimit({
 });
 
 export const authRouter = Router();
+
+authRouter.post(
+  '/register/send-otp',
+  authRateLimiter,
+  validateBody(sendRegisterOtpSchema),
+  authController.sendRegisterOtp,
+);
 
 authRouter.post(
   '/register',

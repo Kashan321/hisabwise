@@ -11,6 +11,7 @@ import { useTenantDocumentTitle } from '@/lib/hooks/use-document-title';
 import { useBusiness } from '@/lib/hooks/queries';
 import { themeToStyle } from '@/lib/theme/theme-css';
 import { Icon } from '@/components/ui';
+import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
 
 const WAITER_NAV = [
   { href: 'waiter', icon: 'home', label: 'Home' },
@@ -64,6 +65,7 @@ export function WaiterLayout({
       } ${isNewOrderPage && fullScreen ? 'pos-bill-immersive' : ''}`}
       style={themeToStyle(business)}
     >
+      <TenantPromoAlertOverlay />
       {showWaiterHeader && (
       <header className="sticky top-0 z-50 shrink-0 flex justify-between items-center px-4 py-3 border-b border-outline-variant/20 bg-surface-container-lowest">
         <div className="flex items-center gap-2 min-w-0">

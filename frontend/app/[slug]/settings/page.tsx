@@ -17,6 +17,8 @@ import {
   formatBusinessPhonesDisplay,
   formatRestaurantReceiptPhones,
 } from '@/lib/business-phones';
+import { useAuth } from '@/lib/auth/auth-context';
+import { isBusinessOwner } from '@/lib/auth/permissions';
 import { useBusiness, useSubscription } from '@/lib/hooks/queries';
 import {
   formatDaysRemaining,
@@ -33,8 +35,10 @@ import {
 export default function SettingsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const toast = useToast();
+  const { user } = useAuth();
   const { data: business } = useBusiness();
   const { data: subscription } = useSubscription();
+  const owner = isBusinessOwner(user);
   const updateBusiness = useUpdateBusiness();
   const { detecting: detectingCurrency } = useAutoDetectCurrency();
 
@@ -484,32 +488,34 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
           </p>
         </section>
 
-        <section className="p-6 rounded-2xl border-2 border-outline-variant/10 bg-white shadow-sm space-y-4">
-          <h3 className="font-title-lg text-primary">Subscription</h3>
-          <p className="font-body-emphasis">
-            Status{' '}
-            <span className="ml-2 px-3 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed font-caption">
-              {subscription?.status ?? '—'}
-            </span>
-          </p>
-          {subscription && getSubscriptionDaysRemaining(subscription) != null && (
-            <p className="font-body-base text-on-surface-variant">
-              {subscription.status === 'TRIAL' ? 'Trial' : 'Subscription'}{' '}
-              {formatDaysRemaining(getSubscriptionDaysRemaining(subscription)!)}
-              {getSubscriptionPeriodEnd(subscription)
-                ? ` · ends ${getSubscriptionPeriodEnd(subscription)!.toLocaleDateString()}`
-                : ''}
+        {owner && (
+          <section className="p-6 rounded-2xl border-2 border-outline-variant/10 bg-white shadow-sm space-y-4">
+            <h3 className="font-title-lg text-primary">Subscription</h3>
+            <p className="font-body-emphasis">
+              Status{' '}
+              <span className="ml-2 px-3 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed font-caption">
+                {subscription?.status ?? '—'}
+              </span>
             </p>
-          )}
-          {subscription?.hasPendingPayment && (
-            <p className="font-body-base text-secondary">Payment proof is under review.</p>
-          )}
-          <Link href={`/${slug}/subscription`}>
-            <Button variant="outline" className="cursor-pointer">
-              Manage subscription
-            </Button>
-          </Link>
-        </section>
+            {subscription && getSubscriptionDaysRemaining(subscription) != null && (
+              <p className="font-body-base text-on-surface-variant">
+                {subscription.status === 'TRIAL' ? 'Trial' : 'Subscription'}{' '}
+                {formatDaysRemaining(getSubscriptionDaysRemaining(subscription)!)}
+                {getSubscriptionPeriodEnd(subscription)
+                  ? ` · ends ${getSubscriptionPeriodEnd(subscription)!.toLocaleDateString()}`
+                  : ''}
+              </p>
+            )}
+            {subscription?.hasPendingPayment && (
+              <p className="font-body-base text-secondary">Payment proof is under review.</p>
+            )}
+            <Link href={`/${slug}/subscription`}>
+              <Button variant="outline" className="cursor-pointer">
+                Manage subscription
+              </Button>
+            </Link>
+          </section>
+        )}
 
         <section className="md:col-span-2 p-6 bg-surface-container-lowest rounded-xl card-hairline">
           <h3 className="font-title-lg text-primary mb-4">Setup checklist</h3>

@@ -7,6 +7,7 @@ export interface RegisterUserInput {
   branchNumber: string;
   name: string;
   email: string;
+  emailOtp: string;
   password: string;
   primaryColor?: string;
   secondaryColor?: string;

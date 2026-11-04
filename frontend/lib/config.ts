@@ -5,7 +5,7 @@
 export const BRANDING = {
   name: 'Hisab Wise',
   slug: 'hisabwise',
-  domain: 'ventaretail.com',
+  domain: 'hisabwise.com',
   company: 'Hisab Wise',
   tagline: 'Restaurant operations, POS, and real-time reporting in one place',
   platformAdmin: 'Hisab Wise Admin',

@@ -35,6 +35,7 @@ export function ImageUploadField({
   onBeforeUpload,
   uploadTriggerRef,
   uploadAuth = 'tenant',
+  platformScope,
   allowPasteUrl = false,
 }: {
   label?: string;
@@ -51,6 +52,7 @@ export function ImageUploadField({
   onBeforeUpload?: () => boolean;
   uploadTriggerRef?: React.RefObject<HTMLInputElement | null>;
   uploadAuth?: 'tenant' | 'platform';
+  platformScope?: import('@/lib/api/upload').PlatformUploadScope;
   /** Show a field to paste a direct http(s) image link instead of uploading. */
   allowPasteUrl?: boolean;
 }) {
@@ -124,7 +126,12 @@ export function ImageUploadField({
     }
 
     try {
-      const uploaded = await uploadFile.mutateAsync({ file, folder, auth: uploadAuth });
+      const uploaded = await uploadFile.mutateAsync({
+        file,
+        folder,
+        auth: uploadAuth,
+        platformScope,
+      });
       onChange(uploaded.key);
       setPreviewUrl(uploaded.url);
       setPreviewError(false);

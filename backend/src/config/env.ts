@@ -10,6 +10,21 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   APP_URL: z.string().default('http://localhost:3000'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_SECURE: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => v === true || v === 'true' || v === '1')
+    .default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  /** Log email bodies when SMTP is not configured (development). */
+  EMAIL_DEV_LOG: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   PLATFORM_SUPER_ADMIN_EMAIL: z.string().email().optional(),
   PLATFORM_SUPER_ADMIN_PASSWORD: z.string().min(8).optional(),
   PLATFORM_SUPER_ADMIN_NAME: z.string().default('Super Admin'),

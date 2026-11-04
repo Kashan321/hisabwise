@@ -25,12 +25,23 @@ export class TenantAuditService {
 
   async list(
     businessId: string,
-    options?: { limit?: number; offset?: number; targetType?: string; userId?: string },
+    options?: {
+      limit?: number;
+      offset?: number;
+      targetType?: string;
+      userId?: string;
+      action?: string;
+      actionContains?: string;
+    },
   ) {
     const where = {
       businessId,
       ...(options?.targetType ? { targetType: options.targetType } : {}),
       ...(options?.userId ? { userId: options.userId } : {}),
+      ...(options?.action ? { action: options.action } : {}),
+      ...(options?.actionContains
+        ? { action: { contains: options.actionContains, mode: 'insensitive' as const } }
+        : {}),
     };
 
     const [logs, total] = await Promise.all([

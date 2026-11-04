@@ -24,25 +24,29 @@ function PlanCard({
   currency,
   selected,
   onSelect,
+  dense,
 }: {
   label: string;
   price: number;
   currency: string;
   selected: boolean;
   onSelect: () => void;
+  dense?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`p-4 rounded-xl border text-left transition-colors cursor-pointer ${
+      className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
         selected
           ? 'border-primary bg-primary-container/30 ring-2 ring-primary'
-          : 'border-outline-variant/30 bg-surface-container-lowest hover:border-outline-variant/50'
+          : 'border-outline-variant/30 bg-white hover:border-primary/40'
       }`}
     >
-      <p className="font-caption uppercase tracking-wider text-on-surface-variant">{label}</p>
-      <p className="font-display-md text-primary mt-1">{formatMoney(price, currency)}</p>
+      <p className="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">{label}</p>
+      <p className={`font-bold text-primary mt-0.5 tabular-nums ${dense ? 'text-lg' : 'text-xl'}`}>
+        {formatMoney(price, currency)}
+      </p>
     </button>
   );
 }
@@ -84,9 +88,15 @@ function BankDetails({ instructions }: { instructions: PaymentInstructions }) {
 export function SubscriptionPaymentPanel({
   subscription,
   compact,
+  skipInvoiceHighlights,
+  sidebarLayout,
 }: {
   subscription?: TenantSubscription;
   compact?: boolean;
+  /** Hide duplicate invoice/receipt promo blocks (e.g. on subscription page with invoice list). */
+  skipInvoiceHighlights?: boolean;
+  /** Tighter layout for sticky sidebar on subscription page. */
+  sidebarLayout?: boolean;
 }) {
   const toast = useToast();
   const { data: instructions, isLoading } = usePaymentInstructions();
@@ -153,9 +163,13 @@ export function SubscriptionPaymentPanel({
   const activeReceiptBanner = subscription?.purchaseReceipt;
   const purchaseInvoice = subscription?.latestPurchaseReceipt;
 
+  const sectionTitle = sidebarLayout
+    ? 'text-sm font-bold text-primary'
+    : 'font-title-lg text-primary';
+
   return (
-    <div className={`space-y-6 ${compact ? '' : 'max-w-2xl mx-auto'}`}>
-      {activeReceiptBanner && activeReceiptBanner.alertDaysRemaining > 0 && (
+    <div className={`space-y-5 ${compact && !sidebarLayout ? '' : compact ? '' : 'max-w-2xl mx-auto'}`}>
+      {!skipInvoiceHighlights && activeReceiptBanner && activeReceiptBanner.alertDaysRemaining > 0 && (
         <section className="rounded-xl border border-tertiary/30 bg-tertiary-container/20 p-5 space-y-3">
           <h2 className="font-title-lg text-primary flex items-center gap-2">
             <Icon name="campaign" />
@@ -168,7 +182,7 @@ export function SubscriptionPaymentPanel({
         </section>
       )}
 
-      {purchaseInvoice && subscription?.subscriptionStatus === 'ACTIVE' && (
+      {!skipInvoiceHighlights && purchaseInvoice && subscription?.subscriptionStatus === 'ACTIVE' && (
         <section className="rounded-xl border border-tertiary/30 bg-tertiary-container/20 p-5 space-y-3">
           <h2 className="font-title-lg text-primary flex items-center gap-2">
             <Icon name="receipt_long" />
@@ -199,8 +213,12 @@ export function SubscriptionPaymentPanel({
       )}
 
       <section className="space-y-3">
-        <h2 className="font-title-lg text-primary">Choose duration</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <h2 className={sectionTitle}>Choose duration</h2>
+        <div
+          className={`grid gap-2.5 ${
+            sidebarLayout ? 'grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'
+          }`}
+        >
           {durationPlans.map((plan) => (
             <PlanCard
               key={plan.durationMonths}
@@ -213,15 +231,16 @@ export function SubscriptionPaymentPanel({
               currency={plan.currency}
               selected={durationMonths === plan.durationMonths}
               onSelect={() => setDurationMonths(plan.durationMonths)}
+              dense={sidebarLayout}
             />
           ))}
         </div>
       </section>
 
-      <section className="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-5 space-y-4">
-        <h2 className="font-title-lg text-primary flex items-center gap-2">
-          <Icon name="account_balance" />
-          Bank transfer details
+      <section className="rounded-xl border border-outline-variant/15 bg-white p-4 space-y-3">
+        <h2 className={`${sectionTitle} flex items-center gap-2`}>
+          <Icon name="account_balance" className="text-lg" />
+          Bank details
         </h2>
         <BankDetails instructions={instructions} />
         <p className="font-caption text-on-surface-variant">
@@ -234,7 +253,7 @@ export function SubscriptionPaymentPanel({
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-title-lg text-primary">Payment proof</h2>
+        <h2 className={sectionTitle}>Payment proof</h2>
         <Input
           label="Transaction ID / reference (optional)"
           value={transactionReference}

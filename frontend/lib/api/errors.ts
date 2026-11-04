@@ -5,6 +5,7 @@ const FIELD_LABELS: Record<string, string> = {
   businessSlug: 'Restaurant link',
   name: 'Full name',
   email: 'Email',
+  emailOtp: 'Verification code',
   password: 'Password',
 };
 

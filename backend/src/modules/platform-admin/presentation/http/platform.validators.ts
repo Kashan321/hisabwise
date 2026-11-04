@@ -27,6 +27,10 @@ export const updatePlatformAdminSchema = z
     message: 'At least one field is required',
   });
 
+export const sendWelcomeEmailSchema = z.object({
+  force: z.boolean().optional(),
+});
+
 export const updateBusinessSubscriptionSchema = z.object({
   subscriptionStatus: z.enum(['ACTIVE', 'PAST_DUE', 'CANCELLED', 'TRIAL']),
 });

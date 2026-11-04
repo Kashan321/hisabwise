@@ -23,6 +23,7 @@ function mapBusinessSummary(
     billingInterval: string | null;
     customMonthlyPrice: { toString(): string } | null;
     subscriptionTempAccessUntil: Date | null;
+    welcomeEmailSentAt?: Date | null;
     createdAt: Date;
     _count: { users: number; orders: number };
     users: Array<{ email: string; name: string }>;
@@ -49,6 +50,7 @@ function mapBusinessSummary(
     orderCount: business._count.orders,
     ownerEmail: owner?.email ?? null,
     ownerName: owner?.name ?? null,
+    welcomeEmailSentAt: business.welcomeEmailSentAt ?? null,
   };
 }
 

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { Button, Icon } from '@/components/ui';
 import type { TenantSubscription } from '@/lib/api/types';
 import { APP_NAME } from '@/lib/config';
+import { useAuth } from '@/lib/auth/auth-context';
+import { isBusinessOwner } from '@/lib/auth/permissions';
 
 export function SubscriptionLockScreen({
   slug,
@@ -14,6 +16,8 @@ export function SubscriptionLockScreen({
   subscription?: TenantSubscription;
   onLogout: () => void;
 }) {
+  const { user } = useAuth();
+  const owner = isBusinessOwner(user);
   const isRenew =
     subscription?.status === 'ACTIVE' ||
     subscription?.status === 'PAST_DUE' ||
@@ -44,7 +48,7 @@ export function SubscriptionLockScreen({
           <p className="font-body-base text-on-surface-variant">{description}</p>
         </div>
         <div className="flex flex-col gap-3">
-          {!subscription?.hasPendingPayment && (
+          {owner && !subscription?.hasPendingPayment && (
             <Link href={`/${slug}/subscription`}>
               <Button variant="primary" className="w-full cursor-pointer">
                 <Icon name="payments" />

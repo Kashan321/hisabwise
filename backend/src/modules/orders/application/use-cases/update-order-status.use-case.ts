@@ -11,6 +11,7 @@ import { CompleteOrderInput, OrderStatus } from '../../domain/entities/order.ent
 import { OrderRepository } from '../../domain/repositories/order.repository';
 import { InvalidOrderStatusError, OrderNotFoundError } from '../../domain/errors/order.errors';
 import { inventoryStockService } from '../../../inventory/application/services/inventory-stock.service';
+import { tenantAuditService } from '../../../../shared/audit/tenant-audit.service';
 
 export class UpdateOrderStatusUseCase {
   constructor(private readonly orderRepository: OrderRepository) {}
@@ -129,6 +130,20 @@ export class UpdateOrderStatusUseCase {
       );
       if (reversalPlan) {
         emitDomainEvent('inventory.stock_changed', { businessId, orderId });
+      }
+      if (actorId) {
+        await tenantAuditService.log({
+          businessId,
+          userId: actorId,
+          action: 'order.cancelled',
+          targetType: 'order',
+          targetId: orderId,
+          metadata: {
+            previousStatus: order.status,
+            ticketNumber: order.ticketNumber ?? null,
+            source: 'status_update',
+          },
+        });
       }
     } else {
       updated = await this.orderRepository.updateStatus(

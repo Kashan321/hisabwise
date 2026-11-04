@@ -5,6 +5,8 @@ import { authModule } from '../../infrastructure/auth.module';
 import { setRefreshCookieOptions } from '../../application/use-cases/register-user.use-case';
 import { success } from '../../../../shared/http/api-response';
 import { asyncHandler } from '../../../../shared/http/async-handler';
+import { tenantEmailService } from '../../../../shared/email/tenant-email.service';
+import { DuplicateEmailError, OtpRateLimitedError } from '../../domain/errors/auth.errors';
 
 function setRefreshCookie(res: Response, token: string, expiresAt: Date) {
   res.cookie(AUTH.REFRESH_COOKIE_NAME, token, setRefreshCookieOptions(expiresAt));
@@ -15,6 +17,22 @@ function clearRefreshCookie(res: Response) {
 }
 
 export class AuthController {
+  sendRegisterOtp = asyncHandler(async (req: Request, res: Response) => {
+    try {
+      const result = await tenantEmailService.sendRegisterOtp(req.body.email);
+      return success(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'DUPLICATE_EMAIL') {
+        throw new DuplicateEmailError();
+      }
+      if (error instanceof Error && error.message.startsWith('COOLDOWN:')) {
+        const seconds = Number(error.message.split(':')[1] ?? '60');
+        throw new OtpRateLimitedError(seconds);
+      }
+      throw error;
+    }
+  });
+
   register = asyncHandler(async (req: Request, res: Response) => {
     const result = await authModule.registerUser.execute(req.body);
     setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);

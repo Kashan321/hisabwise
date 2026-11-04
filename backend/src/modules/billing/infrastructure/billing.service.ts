@@ -28,6 +28,11 @@ import { normalizeStorageKey } from '../../files/infrastructure/storage-referenc
 import { filesModule } from '../../files/infrastructure/files.module';
 import { fileStorageService } from '../../files/infrastructure/storage.factory';
 import { buildSubscriptionInvoicePdf } from './subscription-invoice-pdf';
+import {
+  emailInvoiceToOwner,
+  tenantEmailService,
+} from '../../../shared/email/tenant-email.service';
+import { logger } from '../../../shared/logger/logger';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const PURCHASE_RECEIPT_ALERT_DAYS = 30;
@@ -421,6 +426,15 @@ export class BillingService {
       /* receipt generation is best-effort; approval already succeeded */
     });
 
+    const approvedCount = await prisma.paymentSubmission.count({
+      where: { businessId: submission.businessId, status: 'APPROVED' },
+    });
+    if (approvedCount === 1) {
+      void tenantEmailService.sendWelcomeOnboarding(submission.businessId).catch((err) => {
+        logger.warn({ err, businessId: submission.businessId }, 'Welcome email failed');
+      });
+    }
+
     return prisma.paymentSubmission.findUnique({ where: { id: submissionId } });
   }
 
@@ -749,7 +763,9 @@ export class BillingService {
       });
     });
 
-    return this.mapInvoiceAlert(invoice);
+    const mapped = await this.mapInvoiceAlert(invoice);
+    void emailInvoiceToOwner(mapped, businessId);
+    return mapped;
   }
 
   async issuePurchaseReceiptForSubmission(submissionId: string, platformUserId: string) {
@@ -903,7 +919,9 @@ export class BillingService {
       },
     });
 
-    return this.mapInvoiceAlert(invoice);
+    const mapped = await this.mapInvoiceAlert(invoice);
+    void emailInvoiceToOwner(mapped, params.businessId);
+    return mapped;
   }
 }
 

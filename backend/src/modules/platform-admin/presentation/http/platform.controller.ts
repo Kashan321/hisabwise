@@ -11,6 +11,7 @@ import { subscriptionRenewalService } from '../../../billing/infrastructure/subs
 import { platformSettingsRepository } from '../../infrastructure/platform-settings.repository';
 import { platformAdminModule } from '../../infrastructure/platform-admin.module';
 import { writePlatformAudit } from '../../infrastructure/platform-audit.service';
+import { tenantEmailService } from '../../../../shared/email/tenant-email.service';
 import type { BusinessSummary } from '../../domain/repositories/platform-business.repository';
 
 async function withSubscriptionViews<T extends BusinessSummary>(businesses: T[]) {
@@ -176,6 +177,29 @@ export class PlatformBusinessController {
       String(req.params.id),
     );
     return success(res, { business });
+  });
+
+  sendWelcomeEmail = asyncHandler(async (req: Request, res: Response) => {
+    const businessId = String(req.params.id);
+    const force = Boolean(req.body?.force);
+    const result = await tenantEmailService.sendWelcomeOnboarding(businessId, { force });
+    if (!result.sent) {
+      const message =
+        result.reason === 'ALREADY_SENT'
+          ? 'Welcome email was already sent. Use force to send again.'
+          : result.reason === 'NO_OWNER_EMAIL'
+            ? 'No owner email found for this tenant.'
+            : 'Email could not be sent. Check SMTP configuration.';
+      return fail(res, ErrorCodes.VALIDATION_ERROR, message, 400);
+    }
+    await writePlatformAudit({
+      platformUserId: req.platformContext!.platformUserId,
+      action: 'tenant.welcome_email_sent',
+      targetType: 'business',
+      targetId: businessId,
+      metadata: { force },
+    });
+    return success(res, { sent: true });
   });
 
   remove = asyncHandler(async (req: Request, res: Response) => {

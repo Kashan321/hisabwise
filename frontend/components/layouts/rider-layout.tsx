@@ -11,6 +11,7 @@ import { useTenantDocumentTitle } from '@/lib/hooks/use-document-title';
 import { useBusiness } from '@/lib/hooks/queries';
 import { themeToStyle } from '@/lib/theme/theme-css';
 import { Icon } from '@/components/ui';
+import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
 
 const RIDER_NAV = [
   { href: 'rider', icon: 'home', label: 'Home' },
@@ -53,6 +54,7 @@ export function RiderLayout({
       className="bg-surface text-on-surface min-h-screen flex flex-col"
       style={themeToStyle(business)}
     >
+      <TenantPromoAlertOverlay />
       <header className="shrink-0 flex justify-between items-center px-4 py-3 border-b border-outline-variant/20 bg-surface-container-lowest">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-secondary-container flex items-center justify-center text-on-secondary-container shrink-0">

@@ -19,6 +19,28 @@ export class DuplicateEmailError extends AppError {
   }
 }
 
+export class OtpInvalidError extends AppError {
+  constructor() {
+    super(ErrorCodes.OTP_INVALID, 'Verification code is incorrect', 400);
+  }
+}
+
+export class OtpExpiredError extends AppError {
+  constructor() {
+    super(ErrorCodes.OTP_EXPIRED, 'Verification code expired. Request a new one.', 400);
+  }
+}
+
+export class OtpRateLimitedError extends AppError {
+  constructor(retryAfterSeconds: number) {
+    super(
+      ErrorCodes.OTP_RATE_LIMITED,
+      `Please wait ${retryAfterSeconds} seconds before requesting another code`,
+      429,
+    );
+  }
+}
+
 export class DuplicateSlugError extends AppError {
   constructor() {
     super(ErrorCodes.DUPLICATE_SLUG, 'Business slug is already taken', 409);

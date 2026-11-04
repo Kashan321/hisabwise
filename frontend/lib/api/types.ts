@@ -886,6 +886,7 @@ export interface PlatformBusiness {
   orderCount: number;
   ownerEmail?: string | null;
   ownerName?: string | null;
+  welcomeEmailSentAt?: string | null;
   logoUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
@@ -946,6 +947,19 @@ export interface PlatformSettings {
   backgroundColor: string;
   textColor: string;
   calendlyUrl?: string | null;
+}
+
+export interface PlatformTenantAlert {
+  id: string;
+  bodyText: string;
+  linkUrl: string | null;
+  linkLabel: string | null;
+  imageUrl: string | null;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MenuGalleryImage {
@@ -1027,6 +1041,16 @@ export interface AuditLog {
   platformUser: { id: string; name: string; email: string; role: string };
 }
 
+export interface TenantAuditLog {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  metadata: unknown;
+  createdAt: string;
+  user: { id: string; name: string; email: string };
+}
+
 export interface PublicTable {
   id: string;
   tableIdentifier: string;
@@ -1085,6 +1109,10 @@ export interface SubscriptionInvoiceAlert {
   periodEndsAt?: string | null;
   daysUntilDue: number;
   alertDaysRemaining: number;
+}
+
+export interface SubscriptionInvoiceListItem extends SubscriptionInvoiceAlert {
+  alertActive?: boolean;
 }
 
 export type SubscriptionAccessPhase =

@@ -37,6 +37,7 @@ import { TenantPageFrame } from '@/components/layouts/tenant-page-frame';
 import { NewBillButton } from '@/components/layouts/new-bill-button';
 import { ReportsButton } from '@/components/layouts/reports-button';
 import { UserProfileMenu } from '@/components/layouts/user-profile-menu';
+import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
 
 const HEADER_LINKS = [
   { label: 'Analytics', href: 'reports', permissions: ['reports.view'] },
@@ -251,6 +252,7 @@ export function BusinessLayout({
       style={themeStyle}
     >
       <InboxRealtimeBridge slug={slug} />
+      <TenantPromoAlertOverlay />
       <aside
         className={`h-screen h-[100dvh] w-sidebar-width fixed left-0 top-0 bg-surface-container-low border-r border-outline-variant/20 hidden md:flex flex-col p-4 gap-2 z-[60] transition-transform duration-300 ease-in-out pt-safe ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'

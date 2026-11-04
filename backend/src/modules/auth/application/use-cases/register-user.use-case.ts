@@ -10,6 +10,8 @@ import { BusinessSlug, Email, Password } from '../../domain/value-objects/email.
 import { PasswordHasherPort } from '../ports/password-hasher.port';
 import { TokenServicePort } from '../ports/token-service.port';
 import { RegisterUserInput, RegisterUserOutput } from '../dtos/register-user.dto';
+import { tenantEmailService } from '../../../../shared/email/tenant-email.service';
+import { OtpExpiredError, OtpInvalidError } from '../../domain/errors/auth.errors';
 
 export class RegisterUserUseCase {
   constructor(
@@ -24,6 +26,18 @@ export class RegisterUserUseCase {
     const email = Email.create(input.email);
     const password = Password.create(input.password);
     const slug = BusinessSlug.create(input.businessSlug);
+
+    try {
+      await tenantEmailService.verifyRegisterOtp(email.value, input.emailOtp);
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'OTP_EXPIRED' || error.message === 'OTP_MAX_ATTEMPTS') {
+          throw new OtpExpiredError();
+        }
+        if (error.message === 'OTP_INVALID') throw new OtpInvalidError();
+      }
+      throw error;
+    }
 
     if (await this.businessRepository.slugExists(slug.value)) {
       throw new DuplicateSlugError();

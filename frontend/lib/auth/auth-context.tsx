@@ -41,6 +41,7 @@ interface AuthContextValue extends AuthState {
     branchNumber: string;
     name: string;
     email: string;
+    emailOtp: string;
     password: string;
     primaryColor?: string;
     secondaryColor?: string;
@@ -167,8 +168,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (input: {
       businessName: string;
       businessSlug: string;
+      phone: string;
+      city: string;
+      restaurantAddress: string;
+      branchNumber: string;
       name: string;
       email: string;
+      emailOtp: string;
       password: string;
       primaryColor?: string;
       secondaryColor?: string;

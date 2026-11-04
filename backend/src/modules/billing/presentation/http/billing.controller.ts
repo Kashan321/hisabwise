@@ -34,6 +34,13 @@ export class BillingController {
     return success(res, { submissions });
   });
 
+  listSubscriptionInvoices = asyncHandler(async (req: Request, res: Response) => {
+    const invoices = await billingService.listSubscriptionInvoicesForBusiness(
+      req.tenantContext!.businessId,
+    );
+    return success(res, { invoices });
+  });
+
   getSubscriptionInvoice = asyncHandler(async (req: Request, res: Response) => {
     try {
       const invoice = await billingService.getSubscriptionInvoiceForTenant(

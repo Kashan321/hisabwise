@@ -416,8 +416,28 @@ export class ReviewOrderChangeRequestUseCase {
       action: 'order.change_request_reviewed',
       targetType: 'order_change_request',
       targetId: requestId,
-      metadata: { orderId, status: input.status, userName: actor.userName },
+      metadata: {
+        orderId,
+        status: input.status,
+        type: request.type,
+        userName: actor.userName,
+      },
     });
+
+    if (input.status === 'APPROVED' && request.type === 'CANCEL_ORDER') {
+      await tenantAuditService.log({
+        businessId,
+        userId: reviewedById,
+        action: 'order.cancelled',
+        targetType: 'order',
+        targetId: orderId,
+        metadata: {
+          source: 'change_request',
+          changeRequestId: requestId,
+          userName: actor.userName,
+        },
+      });
+    }
 
     return request;
   }

@@ -59,6 +59,10 @@ enum PlatformRole {
   PLATFORM_ADMIN
 }
 
+enum EmailVerificationPurpose {
+  REGISTER
+}
+
 enum InventoryUnit {
   KG
   G
@@ -148,6 +152,7 @@ model Business {
   nextOrderTicketNumber  Int            @default(1) @map("next_order_ticket_number")
   orderTicketDayKey      String?        @map("order_ticket_day_key")
   businessDayStartTime   String         @default("05:00") @map("business_day_start_time")
+  welcomeEmailSentAt     DateTime?      @map("welcome_email_sent_at")
   businessDayTimezone    String         @default("Asia/Karachi") @map("business_day_timezone")
   businessDayAutoCloseEnabled      Boolean @default(true) @map("business_day_auto_close_enabled")
   businessDayCloseReminderEnabled  Boolean @default(true) @map("business_day_close_reminder_enabled")
@@ -231,6 +236,7 @@ model User {
   businessDaysClosed              BusinessDay[]       @relation("BusinessDayClosedBy")
   inboxNotifications              UserInboxNotification[]
   notificationPreferences         UserNotificationPreference?
+  tenantAlertDismissals           TenantAlertDismissal[]
 
   @@index([businessId])
   @@map("users")
@@ -1185,6 +1191,39 @@ model PlatformMenuGalleryImage {
   @@map("platform_menu_gallery_images")
 }
 
+model PlatformTenantAlert {
+  id        String   @id @default(uuid()) @db.Uuid
+  bodyText  String   @map("body_text")
+  linkUrl   String?  @map("link_url")
+  linkLabel String?  @map("link_label")
+  imageUrl  String?  @map("image_url")
+  startDate String   @map("start_date") @db.VarChar(10)
+  endDate   String   @map("end_date") @db.VarChar(10)
+  isActive  Boolean  @default(false) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dismissals TenantAlertDismissal[]
+
+  @@index([isActive, startDate, endDate])
+  @@map("platform_tenant_alerts")
+}
+
+model TenantAlertDismissal {
+  id        String   @id @default(uuid()) @db.Uuid
+  alertId   String   @map("alert_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  dismissOn String   @map("dismiss_on") @db.VarChar(10)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  alert PlatformTenantAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  user  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, userId, dismissOn])
+  @@index([userId, dismissOn])
+  @@map("tenant_alert_dismissals")
+}
+
 model ReceiptTemplate {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
@@ -1565,4 +1604,18 @@ model PlatformFeedbackSettings {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("platform_feedback_settings")
+}
+
+model EmailVerificationCode {
+  id         String                   @id @default(uuid()) @db.Uuid
+  email      String
+  purpose    EmailVerificationPurpose
+  codeHash   String                   @map("code_hash")
+  expiresAt  DateTime                 @map("expires_at")
+  consumedAt DateTime?                @map("consumed_at")
+  attempts   Int                      @default(0)
+  createdAt  DateTime                 @default(now()) @map("created_at")
+
+  @@index([email, purpose, createdAt])
+  @@map("email_verification_codes")
 }

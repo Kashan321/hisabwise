@@ -18,6 +18,10 @@ export function hasRole(user: AuthUser | null | undefined, role: string): boolea
   return user.roles.includes(role);
 }
 
+export function isBusinessOwner(user: AuthUser | null | undefined): boolean {
+  return hasRole(user, 'owner');
+}
+
 export function isWaiterOnly(user: AuthUser | null | undefined): boolean {
   if (!user) return false;
   return hasRole(user, 'waiter') && !hasAnyPermission(user, ['orders.manage', '*']);
@@ -52,7 +56,8 @@ export interface NavItem {
 export interface TenantRouteRule {
   path: string;
   permissions?: string[];
-  /** Subscription and similar — any logged-in tenant user */
+  roles?: string[];
+  /** Any logged-in tenant user (rare — prefer permissions or roles) */
   allowAllAuthenticated?: boolean;
 }
 
@@ -89,7 +94,7 @@ export const TENANT_ROUTE_RULES: TenantRouteRule[] = [
   { path: 'staff', permissions: ['staff.manage'] },
   { path: 'settings', permissions: ['business.manage', '*'] },
   { path: 'feedback', permissions: ['feedback.manage', 'business.manage', '*'] },
-  { path: 'subscription', allowAllAuthenticated: true },
+  { path: 'subscription', roles: ['owner'] },
   { path: 'notifications', allowAllAuthenticated: true },
 ];
 
@@ -127,6 +132,7 @@ export const BUSINESS_NAV: NavItem[] = [
   { href: 'qr', icon: 'qr_code', label: 'QR Codes', permissions: ['qr.manage'] },
   { href: 'staff', icon: 'badge', label: 'Staff', permissions: ['staff.manage'] },
   { href: 'settings', icon: 'settings', label: 'Settings', permissions: ['business.manage', '*'] },
+  { href: 'subscription', icon: 'card_membership', label: 'Subscription', roles: ['owner'] },
   { href: 'feedback', icon: 'feedback', label: 'Feedback', permissions: ['feedback.manage', 'business.manage', '*'] },
 ];
 
@@ -155,7 +161,7 @@ export function getRouteAccessRule(subPath: string): TenantRouteRule | undefined
 export function getRequiredPermissionsForRoute(subPath: string): string[] | undefined {
   const rule = getRouteAccessRule(subPath);
   if (!rule) return undefined;
-  if (rule.allowAllAuthenticated) return undefined;
+  if (rule.allowAllAuthenticated || rule.roles?.length) return undefined;
   return rule.permissions;
 }
 
@@ -172,6 +178,9 @@ export function canAccessTenantRoute(
 
   const rule = getRouteAccessRule(subPath);
   if (!rule) return false;
+  if (rule.roles?.length) {
+    return rule.roles.some((role) => hasRole(user, role));
+  }
   if (rule.allowAllAuthenticated) return true;
   if (!rule.permissions?.length) return false;
   return hasAnyPermission(user, rule.permissions);
@@ -189,7 +198,9 @@ export function getVisibleNav(user: AuthUser | null | undefined): NavItem[] {
     return BUSINESS_NAV.filter((item) => item.href.startsWith('waiter'));
   }
   return BUSINESS_NAV.filter((item) => {
-    if (item.roles) return false;
+    if (item.roles?.length) {
+      return item.roles.some((role) => hasRole(user, role));
+    }
     if (item.permissions && !hasAnyPermission(user, item.permissions)) return false;
     return true;
   });

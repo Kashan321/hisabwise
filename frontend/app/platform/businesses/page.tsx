@@ -14,6 +14,7 @@ import {
   useSetBusinessTrialDays,
   useBlockBusinessSubscription,
   useUnblockBusinessSubscription,
+  useSendWelcomeEmail,
 } from '@/lib/hooks/mutations';
 import { formatApiError } from '@/lib/api/errors';
 import { useToast } from '@/lib/toast';
@@ -110,6 +111,7 @@ export default function PlatformBusinessesPage() {
   const suspend = useSuspendBusiness();
   const reactivate = useReactivateBusiness();
   const updateSubscription = useUpdateBusinessSubscription();
+  const sendWelcomeEmail = useSendWelcomeEmail();
   const setTrialDays = useSetBusinessTrialDays();
   const blockSubscription = useBlockBusinessSubscription();
   const unblockSubscription = useUnblockBusinessSubscription();
@@ -753,6 +755,74 @@ export default function PlatformBusinessesPage() {
               </Button>
             </div>
             <SendSubscriptionInvoicePanel business={detailBusiness} />
+            <div className="rounded-xl border border-outline-variant/20 p-4 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="font-body-emphasis text-primary">Onboarding email</p>
+                  <p className="font-caption text-on-surface-variant">
+                    Sends the welcome guide to the owner&apos;s inbox (HTML template).
+                  </p>
+                  {detailBusiness.welcomeEmailSentAt && (
+                    <p className="font-caption text-on-surface-variant mt-1">
+                      Last sent{' '}
+                      {new Date(detailBusiness.welcomeEmailSentAt).toLocaleString(undefined, {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      })}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={sendWelcomeEmail.isPending}
+                    disabled={!detailBusiness.ownerEmail}
+                    onClick={async () => {
+                      if (!detailBusiness.ownerEmail) {
+                        toast.error('This tenant has no owner email on file.');
+                        return;
+                      }
+                      try {
+                        await sendWelcomeEmail.mutateAsync({ id: detailBusiness.id });
+                        toast.success('Onboarding email sent');
+                      } catch (e) {
+                        toast.error(formatApiError(e));
+                      }
+                    }}
+                  >
+                    Send welcome email
+                  </Button>
+                  {detailBusiness.welcomeEmailSentAt && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      loading={sendWelcomeEmail.isPending}
+                      onClick={async () => {
+                        if (
+                          !window.confirm(
+                            'Welcome email was already sent. Send again to the owner?',
+                          )
+                        ) {
+                          return;
+                        }
+                        try {
+                          await sendWelcomeEmail.mutateAsync({
+                            id: detailBusiness.id,
+                            force: true,
+                          });
+                          toast.success('Onboarding email sent again');
+                        } catch (e) {
+                          toast.error(formatApiError(e));
+                        }
+                      }}
+                    >
+                      Send again
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="rounded-xl border border-outline-variant/20 p-4 space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div>

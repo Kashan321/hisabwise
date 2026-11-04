@@ -5,6 +5,11 @@ import {
   normalizePakistaniPhone,
   PAKISTANI_PHONE_MESSAGE,
 } from '../../../../shared/validation/pakistani-phone';
+
+export const sendRegisterOtpSchema = z.object({
+  email: z.string().trim().email(),
+});
+
 export const registerSchema = z.object({
   businessName: z.string().trim().min(2).max(100),
   businessSlug: z
@@ -23,6 +28,7 @@ export const registerSchema = z.object({
   branchNumber: z.string().trim().min(1).max(50),
   name: z.string().trim().min(2).max(100),
   email: z.string().trim().email(),
+  emailOtp: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit verification code'),
   password: z.string().min(PASSWORD.MIN_LENGTH),
   primaryColor: z.string().trim().max(32).optional(),
   secondaryColor: z.string().trim().max(32).optional(),

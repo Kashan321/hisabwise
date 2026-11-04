@@ -18,6 +18,7 @@ export interface BusinessSummary {
   orderCount: number;
   ownerEmail: string | null;
   ownerName: string | null;
+  welcomeEmailSentAt: Date | null;
 }
 
 export interface BusinessDetail extends BusinessSummary {

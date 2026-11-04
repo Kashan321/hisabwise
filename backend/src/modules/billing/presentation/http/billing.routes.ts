@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { requireAuth, requirePermission } from '../../../auth/presentation/middlewares/require-auth.middleware';
+import {
+  requireAuth,
+  requirePermission,
+  requireRole,
+} from '../../../auth/presentation/middlewares/require-auth.middleware';
+import { ROLES } from '../../../../config/constants';
 import { validateBody } from '../../../../shared/http/validate.middleware';
 import { billingController } from './billing.controller';
 import {
@@ -21,9 +26,16 @@ billingRouter.post(
 );
 
 billingRouter.get(
+  '/subscription-invoices',
+  requireAuth,
+  requireRole(ROLES.OWNER),
+  billingController.listSubscriptionInvoices,
+);
+
+billingRouter.get(
   '/subscription-invoices/:id',
   requireAuth,
-  requirePermission('business.manage'),
+  requireRole(ROLES.OWNER),
   billingController.getSubscriptionInvoice,
 );
 

@@ -68,11 +68,18 @@ export async function getFileReadUrl(
   return doFetch(false);
 }
 
+export type PlatformUploadScope = 'menu-gallery' | 'tenant-alerts';
+
 export async function uploadFile(
   file: File,
-  options?: { folder?: string; auth?: 'tenant' | 'platform' },
+  options?: {
+    folder?: string;
+    auth?: 'tenant' | 'platform';
+    platformScope?: PlatformUploadScope;
+  },
 ): Promise<UploadedFile> {
   const auth = options?.auth ?? 'tenant';
+  const platformScope = options?.platformScope ?? 'menu-gallery';
   const params = new URLSearchParams();
   if (options?.folder) params.set('folder', options.folder);
   const query = params.toString() ? `?${params.toString()}` : '';
@@ -92,7 +99,7 @@ export async function uploadFile(
 
     const uploadPath =
       auth === 'platform'
-        ? `${API_BASE_URL}/platform/menu-gallery/upload${query}`
+        ? `${API_BASE_URL}/platform/${platformScope}/upload${query}`
         : `${API_BASE_URL}/files/upload${query}`;
 
     const response = await fetch(uploadPath, {

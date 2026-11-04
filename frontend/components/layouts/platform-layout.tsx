@@ -22,6 +22,7 @@ const PLATFORM_NAV = [
   { href: '/platform/demo-requests', icon: 'event', label: 'Demo requests' },
   { href: '/platform/settings', icon: 'palette', label: 'Appearance' },
   { href: '/platform/menu-gallery', icon: 'collections', label: 'Menu gallery' },
+  { href: '/platform/tenant-alerts', icon: 'campaign', label: 'Tenant alerts' },
   { href: '/platform/receipts', icon: 'receipt_long', label: 'Receipts' },
   { href: '/platform/admins', icon: 'group', label: 'Platform Staff' },
   { href: '/platform/audit', icon: 'history_edu', label: 'Audit Logs' },

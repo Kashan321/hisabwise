@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { Spinner } from '@/components/ui';
+import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
 import {
   KitchenColumn,
   KitchenHeader,
@@ -237,6 +238,7 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
       className="kds-board h-screen w-full min-h-0 flex flex-col overflow-hidden"
       style={boardTheme}
     >
+      <TenantPromoAlertOverlay />
       <KitchenHeader
         slug={slug}
         clock={clock}

@@ -43,7 +43,8 @@ import { PageHeader } from '@/components/ui/page-shell';
 import { formatApiError } from '@/lib/api/errors';
 import type { OrderListFilters } from '@/lib/api/types';
 import { useCreateOrder, useUpdateOrderStatus } from '@/lib/hooks/mutations';
-import { useCustomers, useCurrentBusinessDay, useFloorTables, useMenu, useOrderFilters, useOrders, usePromotions, useOrder, useBusiness, useReceiptTemplate } from '@/lib/hooks/queries';
+import { useCustomers, useCurrentBusinessDay, useFloorTables, useMenu, useOrderFilters, useOrders, usePromotions, useOrder, useBusiness, useReceiptTemplate, useTenantAuditLogs } from '@/lib/hooks/queries';
+import { TenantAuditTimeline } from '@/components/audit/tenant-audit-timeline';
 import {
   businessTaxRatePercentLabel,
   estimateOrderTotal,
@@ -340,7 +341,8 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const { data: detailOrderFull } = useOrder(detailOpen && detailOrder ? detailOrder.id : '');
   const displayDetailOrder = detailOrderFull ?? detailOrder;
 
-  const recentActivity = orders.slice(0, 3);
+  const { data: activityPreview, isLoading: activityLoading } = useTenantAuditLogs({ limit: 5 });
+  const recentActivity = activityPreview?.logs ?? [];
   const showOrdersSkeleton = isLoading && !ordersData && !ordersError;
 
   const menuItems = categories
@@ -1051,47 +1053,18 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
         <section className="hidden lg:block space-y-4 pb-8">
           <div className="flex items-center justify-between border-b border-outline-variant/20 pb-2">
             <h3 className="font-title-lg text-primary">Service Activity</h3>
-            <button
-              type="button"
-              onClick={() => toast.success('Full activity log coming soon')}
-              className="font-caption text-secondary flex items-center gap-1 hover:underline cursor-pointer"
+            <Link
+              href={`/${slug}/orders/activity`}
+              className="font-caption text-secondary flex items-center gap-1 hover:underline"
             >
               VIEW FULL LOG <Icon name="arrow_forward" className="text-[14px]" />
-            </button>
+            </Link>
           </div>
-          <div className="flex flex-col gap-4 relative">
-            <div className="absolute left-[15px] top-2 bottom-2 w-px bg-outline-variant/30" />
-            {showOrdersSkeleton ? (
-              <ActivitySkeleton count={3} />
-            ) : (
-              recentActivity.map((order, i) => (
-              <div key={order.id} className="flex gap-4 relative">
-                <div
-                  className={`z-10 w-8 h-8 rounded-full flex items-center justify-center shadow-sm ${
-                    i === 0
-                      ? 'bg-tertiary-fixed text-on-tertiary-fixed'
-                      : i === 1
-                        ? 'bg-secondary-fixed text-on-secondary-fixed'
-                        : 'bg-surface-container-highest text-outline'
-                  }`}
-                >
-                  <Icon
-                    name={i === 0 ? 'check_circle' : i === 1 ? 'shopping_cart' : 'print'}
-                    filled={i < 2}
-                    className="text-[18px]"
-                  />
-                </div>
-                <div className="flex-1 pb-4 border-b border-outline-variant/10">
-                  <p className="font-body-base">
-                    Order <span className="font-mono text-primary">{formatOrderLabel(order)}</span>{' '}
-                    — {order.status.toLowerCase()}
-                  </p>
-                  <p className="font-caption text-outline">{timeAgo(order.createdAt)}</p>
-                </div>
-              </div>
-              ))
-            )}
-          </div>
+          {showOrdersSkeleton || activityLoading ? (
+            <ActivitySkeleton count={3} />
+          ) : (
+            <TenantAuditTimeline logs={recentActivity} compact />
+          )}
         </section>
       </div>
 

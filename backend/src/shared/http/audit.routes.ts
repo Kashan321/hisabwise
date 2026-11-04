@@ -14,9 +14,11 @@ const listAuditLogsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional(),
   targetType: z.string().trim().min(1).max(64).optional(),
   userId: z.string().uuid().optional(),
+  action: z.string().trim().min(1).max(128).optional(),
+  actionContains: z.string().trim().min(1).max(64).optional(),
 });
 
-const canViewAuditLogs = requireAnyPermission('orders.manage', 'staff.manage');
+const canViewAuditLogs = requireAnyPermission('orders.view', 'orders.manage', 'staff.manage');
 
 export const auditRouter = Router();
 

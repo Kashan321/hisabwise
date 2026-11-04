@@ -13,6 +13,8 @@ export const BRANDING = {
   defaultDatabase: 'venta',
   defaultTestDatabase: 'venta-test',
   defaultBrandColor: '#62B4A7',
+  /** Primary accent for transactional HTML emails (header, buttons, OTP). */
+  emailPrimaryColor: '#009444',
 } as const;
 
 export const APP_NAME = BRANDING.name;

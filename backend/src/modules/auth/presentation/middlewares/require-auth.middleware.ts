@@ -86,3 +86,16 @@ export function requireAnyPermission(...permissions: string[]) {
     return next();
   };
 }
+
+export function requireRole(role: string) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.tenantContext) {
+      return next(new UnauthorizedError());
+    }
+    const roles = req.tenantContext.roles ?? [];
+    if (!roles.includes(role)) {
+      return next(new ForbiddenError('Insufficient role'));
+    }
+    return next();
+  };
+}

@@ -1310,6 +1310,22 @@ export function useCreateBusiness() {
   });
 }
 
+export function useSendWelcomeEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      apiFetch<{ sent: true }>(`/platform/businesses/${id}/welcome-email`, {
+        method: 'POST',
+        auth: 'platform',
+        body: JSON.stringify({ force: force ?? false }),
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses'] });
+      qc.invalidateQueries({ queryKey: ['platform', 'businesses', vars.id] });
+    },
+  });
+}
+
 export function useUpdateBusinessSubscription() {
   const qc = useQueryClient();
   return useMutation({
@@ -1424,14 +1440,93 @@ export function useUploadFile() {
       file,
       folder,
       auth,
+      platformScope,
     }: {
       file: File;
       folder?: string;
       auth?: 'tenant' | 'platform';
+      platformScope?: import('@/lib/api/upload').PlatformUploadScope;
     }) =>
       import('@/lib/api/upload').then(({ uploadFile }) =>
-        uploadFile(file, { folder, auth: auth ?? 'tenant' }),
+        uploadFile(file, { folder, auth: auth ?? 'tenant', platformScope }),
       ),
+  });
+}
+
+export function useCreatePlatformTenantAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      bodyText: string;
+      linkUrl?: string | null;
+      linkLabel?: string | null;
+      imageUrl?: string | null;
+      startDate: string;
+      endDate: string;
+      isActive: boolean;
+    }) =>
+      apiFetch<{ alert: import('@/lib/api/types').PlatformTenantAlert }>('/platform/tenant-alerts', {
+        method: 'POST',
+        auth: 'platform',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['platform', 'tenant-alerts'] });
+    },
+  });
+}
+
+export function useUpdatePlatformTenantAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      bodyText?: string;
+      linkUrl?: string | null;
+      linkLabel?: string | null;
+      imageUrl?: string | null;
+      startDate?: string;
+      endDate?: string;
+      isActive?: boolean;
+    }) =>
+      apiFetch<{ alert: import('@/lib/api/types').PlatformTenantAlert }>(
+        `/platform/tenant-alerts/${id}`,
+        {
+          method: 'PATCH',
+          auth: 'platform',
+          body: JSON.stringify(body),
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['platform', 'tenant-alerts'] });
+      qc.invalidateQueries({ queryKey: ['tenant', 'alert', 'current'] });
+    },
+  });
+}
+
+export function useDeletePlatformTenantAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/platform/tenant-alerts/${id}`, { method: 'DELETE', auth: 'platform' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['platform', 'tenant-alerts'] });
+      qc.invalidateQueries({ queryKey: ['tenant', 'alert', 'current'] });
+    },
+  });
+}
+
+export function useDismissTenantAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/alerts/${id}/dismiss`, { method: 'POST', auth: 'tenant' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tenant', 'alert', 'current'] });
+    },
   });
 }
 

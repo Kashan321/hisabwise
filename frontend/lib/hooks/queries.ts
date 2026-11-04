@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api/client';
-import { useTenantQueryEnabled } from '@/lib/auth/auth-context';
+import { useAuth, useTenantQueryEnabled } from '@/lib/auth/auth-context';
+import { isBusinessOwner } from '@/lib/auth/permissions';
 import {
   KITCHEN_QUEUE_STALE_MS,
   ORDER_LIST_STALE_MS,
@@ -303,6 +304,20 @@ export function useSubscription() {
   });
 }
 
+export function useSubscriptionInvoices() {
+  const { user } = useAuth();
+  const tenantEnabled = useTenantQueryEnabled();
+  const enabled = tenantEnabled && isBusinessOwner(user);
+  return useQuery({
+    queryKey: ['billing', 'subscription-invoices'],
+    queryFn: () =>
+      apiFetch<{ invoices: import('@/lib/api/types').SubscriptionInvoiceListItem[] }>(
+        '/billing/subscription-invoices',
+      ).then((d) => d.invoices),
+    enabled,
+  });
+}
+
 export function usePaymentInstructions() {
   const enabled = useTenantQueryEnabled();
   return useQuery({
@@ -482,6 +497,31 @@ export function usePlatformMenuGallery() {
       }).then((d) => d.images),
     staleTime: REFERENCE_STALE_MS,
     gcTime: REFERENCE_GC_MS,
+  });
+}
+
+export function usePlatformTenantAlerts() {
+  return useQuery({
+    queryKey: ['platform', 'tenant-alerts'],
+    queryFn: () =>
+      apiFetch<{ alerts: import('@/lib/api/types').PlatformTenantAlert[] }>(
+        '/platform/tenant-alerts',
+        { auth: 'platform' },
+      ).then((d) => d.alerts),
+    staleTime: REFERENCE_STALE_MS,
+    gcTime: REFERENCE_GC_MS,
+  });
+}
+
+export function useActiveTenantAlert(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['tenant', 'alert', 'current'],
+    queryFn: () =>
+      apiFetch<{ alert: import('@/lib/api/types').PlatformTenantAlert | null }>('/alerts/current', {
+        auth: 'tenant',
+      }).then((d) => d.alert),
+    enabled: options?.enabled ?? true,
+    staleTime: 60_000,
   });
 }
 
@@ -715,6 +755,38 @@ export function usePlatformAuditLogs() {
       apiFetch<{ logs: AuditLog[] }>('/platform/metrics/audit-logs', { auth: 'platform' }).then(
         (d) => d.logs,
       ),
+  });
+}
+
+export function useTenantAuditLogs(options?: {
+  limit?: number;
+  offset?: number;
+  targetType?: string;
+  action?: string;
+  actionContains?: string;
+  enabled?: boolean;
+}) {
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+  const targetType = options?.targetType;
+  const action = options?.action;
+  const actionContains = options?.actionContains;
+  return useQuery({
+    queryKey: ['tenant', 'audit-logs', limit, offset, targetType ?? '', action ?? '', actionContains ?? ''],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+      });
+      if (targetType) params.set('targetType', targetType);
+      if (action) params.set('action', action);
+      if (actionContains) params.set('actionContains', actionContains);
+      return apiFetch<{ logs: import('@/lib/api/types').TenantAuditLog[]; meta: { total: number } }>(
+        `/audit-logs?${params.toString()}`,
+        { auth: 'tenant' },
+      );
+    },
+    enabled: options?.enabled ?? true,
   });
 }
 
