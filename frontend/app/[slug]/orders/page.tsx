@@ -43,6 +43,10 @@ import { PageHeader } from '@/components/ui/page-shell';
 import { formatApiError } from '@/lib/api/errors';
 import type { OrderListFilters } from '@/lib/api/types';
 import { useCreateOrder, useUpdateOrderStatus } from '@/lib/hooks/mutations';
+import {
+  getOrCreateCheckoutIdempotencyKey,
+  resetCheckoutIdempotencyKey,
+} from '@/lib/order-checkout-idempotency';
 import { useCustomers, useCurrentBusinessDay, useFloorTables, useMenu, useOrderFilters, useOrders, usePromotions, useOrder, useBusiness, useReceiptTemplate, useTenantAuditLogs } from '@/lib/hooks/queries';
 import { TenantAuditTimeline } from '@/components/audit/tenant-audit-timeline';
 import {
@@ -497,8 +501,10 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
       const taxRate = resolveTaxRatePercent(taxRateCustomized ? taxRatePercent : '', business);
       const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
 
+      const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
       const result = await createOrder.mutateAsync({
         source: 'STAFF_ASSISTED',
+        idempotencyKey,
         tableId: tableId || undefined,
         customerId: customerId || undefined,
         promotionId: promotionId || undefined,
@@ -510,6 +516,7 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
         notes: orderNotes.trim() || undefined,
         items,
       });
+      resetCheckoutIdempotencyKey(slug);
       toast.success('Order placed successfully');
       setCart({});
       setTableId('');

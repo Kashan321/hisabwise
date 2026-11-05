@@ -2,6 +2,10 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  getOrCreateCheckoutIdempotencyKey,
+  resetCheckoutIdempotencyKey,
+} from '@/lib/order-checkout-idempotency';
 import { apiFetch } from '@/lib/api/client';
 import { Icon } from '@/components/ui';
 import { CashierTerminalPaymentModal } from '@/components/orders/cashier-terminal-payment-modal';
@@ -369,6 +373,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
     setTaxRateCustomized(false);
     setServiceRatePercent(String(DEFAULT_SERVICE_RATE_PERCENT));
     setOrderMode('DINE_IN');
+    resetCheckoutIdempotencyKey(slug);
   }
 
   async function applyCustomerSelection(customer: Customer | null) {
@@ -541,7 +546,12 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
     }
 
     if (!validateDeliveryDetails()) return null;
-    const created = await createOrder.mutateAsync(buildCreateOrderPayload(items, false));
+    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
+    const created = await createOrder.mutateAsync({
+      ...buildCreateOrderPayload(items, false),
+      idempotencyKey,
+    });
+    resetCheckoutIdempotencyKey(slug);
     setSelectedOrderId(created.order.id);
     setCart({});
     void queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -559,7 +569,12 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
       if (selectedOrderId && selectedOrder?.isDraft) {
         await updateOrderStatus.mutateAsync({ id: selectedOrderId, status: 'CANCELLED' });
       }
-      await createOrder.mutateAsync(buildCreateOrderPayload(items, true));
+      const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
+      await createOrder.mutateAsync({
+        ...buildCreateOrderPayload(items, true),
+        idempotencyKey,
+      });
+      resetCheckoutIdempotencyKey(slug);
       toast.success('Order held — start a new order');
       void refetchOrders();
       resetNewTicket();

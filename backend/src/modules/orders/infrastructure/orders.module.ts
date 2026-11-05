@@ -1,6 +1,7 @@
 import { CreateOrderUseCase } from '../application/use-cases/create-order.use-case';
 import { ListOrdersUseCase } from '../application/use-cases/list-orders.use-case';
 import { GetOrderUseCase } from '../application/use-cases/get-order.use-case';
+import { GetOrderByIdempotencyKeyUseCase } from '../application/use-cases/get-order-by-idempotency-key.use-case';
 import { GetOrderFiltersUseCase } from '../application/use-cases/get-order-filters.use-case';
 import { UpdateOrderStatusUseCase } from '../application/use-cases/update-order-status.use-case';
 import {
@@ -37,6 +38,7 @@ export const ordersModule = {
   listOrders: new ListOrdersUseCase(orderRepository),
   getOrderFilters: new GetOrderFiltersUseCase(),
   getOrder: new GetOrderUseCase(orderRepository),
+  getOrderByIdempotencyKey: new GetOrderByIdempotencyKeyUseCase(orderRepository),
   updateOrderStatus: new UpdateOrderStatusUseCase(orderRepository),
   addOrderItems: new AddOrderItemsUseCase(orderRepository, pricingService),
   updateOrderPricing: new UpdateOrderPricingUseCase(orderRepository, pricingService),

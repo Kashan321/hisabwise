@@ -501,11 +501,28 @@ async function resolveOrderCustomerId(
 }
 
 export class PrismaOrderRepository implements OrderRepository {
+  async findByIdempotencyKey(businessId: string, idempotencyKey: string) {
+    const row = await prisma.order.findFirst({
+      where: { businessId, idempotencyKey },
+      include: orderInclude,
+    });
+    return row ? await mapOrderResolved(row) : null;
+  }
+
   async create(
     businessId: string,
     input: CreateOrderInput,
     pricing: OrderPricingResult,
-  ): Promise<OrderEntity> {
+  ): Promise<import('../../domain/entities/order.entity').CreateOrderResult> {
+    const idempotencyKey = input.idempotencyKey?.trim() || null;
+
+    if (idempotencyKey) {
+      const existing = await this.findByIdempotencyKey(businessId, idempotencyKey);
+      if (existing) {
+        return { order: existing, idempotentReplay: true };
+      }
+    }
+
     if (input.tableId) {
       const table = await prisma.floorTable.findFirst({
         where: { id: input.tableId, businessId },
@@ -515,7 +532,8 @@ export class PrismaOrderRepository implements OrderRepository {
 
     const isDraft = input.isDraft ?? false;
 
-    const order = await getRawPrismaClient().$transaction(async (tx) => {
+    try {
+      const order = await getRawPrismaClient().$transaction(async (tx) => {
       const ticketData = isDraft ? null : await allocateOrderTicketNumber(tx, businessId);
       const shiftContext = isDraft ? null : await resolveOrderShiftContext(tx, businessId);
       const resolvedCustomerId = await resolveOrderCustomerId(tx, businessId, input);
@@ -541,6 +559,7 @@ export class PrismaOrderRepository implements OrderRepository {
           deliveryStatus: input.orderType === 'DELIVERY' && !isDraft ? null : undefined,
           ticketNumber: ticketData?.ticketNumber,
           ticketPrefix: ticketData?.ticketPrefix,
+          idempotencyKey,
           subtotal: pricing.subtotal,
           discountAmount: pricing.discountAmount,
           taxAmount: pricing.taxAmount,
@@ -595,7 +614,20 @@ export class PrismaOrderRepository implements OrderRepository {
       return created;
     }, PRISMA_TRANSACTION_OPTIONS);
 
-    return mapOrderResolved(order);
+      return { order: await mapOrderResolved(order), idempotentReplay: false };
+    } catch (error) {
+      if (
+        idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.findByIdempotencyKey(businessId, idempotencyKey);
+        if (existing) {
+          return { order: existing, idempotentReplay: true };
+        }
+      }
+      throw error;
+    }
   }
 
   async findAll(businessId: string, filters?: ListOrdersFilters): Promise<ListOrdersResult> {
@@ -642,7 +674,7 @@ export class PrismaOrderRepository implements OrderRepository {
     options?: UpdateOrderStatusOptions | CompleteOrderInput | PaymentMethod,
     tx?: Prisma.TransactionClient,
   ): Promise<OrderEntity> {
-    const client = tx ?? prisma;
+    const client = tx ?? getRawPrismaClient();
     const existing = await client.order.findFirst({ where: { id: orderId, businessId } });
     if (!existing) throw new OrderNotFoundError();
 
@@ -974,7 +1006,7 @@ export class PrismaOrderRepository implements OrderRepository {
     deliveryStatus: DeliveryStatus,
     tx?: Prisma.TransactionClient,
   ): Promise<OrderEntity> {
-    const client = tx ?? prisma;
+    const client = tx ?? getRawPrismaClient();
     const existing = await client.order.findFirst({ where: { id: orderId, businessId } });
     if (!existing) throw new OrderNotFoundError();
     if (existing.orderType !== 'DELIVERY') {

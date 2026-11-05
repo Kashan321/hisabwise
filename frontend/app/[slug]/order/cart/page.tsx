@@ -24,6 +24,10 @@ import {
 } from '@/lib/cart-storage';
 import { formatApiError } from '@/lib/api/errors';
 import { useCreatePublicOrder } from '@/lib/hooks/mutations';
+import {
+  getOrCreateCheckoutIdempotencyKey,
+  resetCheckoutIdempotencyKey,
+} from '@/lib/order-checkout-idempotency';
 import { usePublicMenu } from '@/lib/hooks/queries';
 import { formatCurrency } from '@/lib/format-currency';
 import { businessTaxRatePercent } from '@/lib/order-pricing';
@@ -205,10 +209,13 @@ export default function CartPage({ params }: { params: Promise<{ slug: string }>
     }));
 
     try {
+      const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
       const result = await createOrder.mutateAsync({
         tableId: tableCtx?.tableId,
+        idempotencyKey,
         items,
       });
+      resetCheckoutIdempotencyKey(slug);
       clearCart(slug);
       toast.success('Order sent to kitchen!');
       window.location.href = `/${slug}/order/confirm?orderId=${result.order.id}`;

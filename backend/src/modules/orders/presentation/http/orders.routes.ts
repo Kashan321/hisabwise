@@ -64,6 +64,13 @@ ordersRouter.get(
 
 ordersRouter.get('/filters', requireAuth, canViewOrders, ordersController.filters);
 
+ordersRouter.get(
+  '/idempotency/:idempotencyKey',
+  requireAuth,
+  canViewOrders,
+  ordersController.getByIdempotencyKey,
+);
+
 ordersRouter.get('/:id', requireAuth, canViewOrders, ordersController.getById);
 
 ordersRouter.patch(

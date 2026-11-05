@@ -6,7 +6,7 @@ import { MenuItemImageField } from '@/components/files/menu-item-image-field';
 import { MenuItemCustomizationPanel } from '@/components/menu/menu-item-customization-panel';
 import { MenuImportModal } from '@/components/menu/menu-import-modal';
 import { Button, Icon, Input, SelectField, Textarea, ListCardSkeleton, Skeleton } from '@/components/ui';
-import { ConfirmDialog, Drawer, Modal } from '@/components/ui/modal';
+import { ConfirmDialog, Modal } from '@/components/ui/modal';
 import { EmptyState, PageHeader } from '@/components/ui/page-shell';
 import { formatApiError } from '@/lib/api/errors';
 import {
@@ -627,34 +627,40 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
         </form>
       </Modal>
 
-      <Drawer
+      <Modal
         open={itemDrawer !== null}
         onClose={() => {
           setItemDrawer(null);
           setError('');
         }}
         title={itemDrawer === 'edit' ? `Edit ${editingItem?.name}` : 'Add menu item'}
-        width="lg"
+        size="lg"
         footer={
-          <>
+          <div className="w-full flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-3">
             {itemDrawer === 'edit' && editingItem && (
-              <Button variant="ghost" type="button" onClick={() => setDeleteTarget(editingItem)}>
+              <Button
+                variant="ghost"
+                type="button"
+                className="sm:mr-auto"
+                onClick={() => setDeleteTarget(editingItem)}
+              >
                 Delete
               </Button>
             )}
-            <div className="flex-1" />
-            <Button variant="ghost" type="button" onClick={() => setItemDrawer(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              form="item-form"
-              loading={createItem.isPending || updateItem.isPending}
-            >
-              Save changes
-            </Button>
-          </>
+            <div className="flex flex-col sm:flex-row gap-2 sm:ml-auto sm:[&_button]:w-auto">
+              <Button variant="ghost" type="button" onClick={() => setItemDrawer(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                form="item-form"
+                loading={createItem.isPending || updateItem.isPending}
+              >
+                Save changes
+              </Button>
+            </div>
+          </div>
         }
       >
         <form id="item-form" onSubmit={handleSaveItem} className="space-y-6">
@@ -862,7 +868,7 @@ export default function MenuPage({ params }: { params: Promise<{ slug: string }>
             />
           </div>
         )}
-      </Drawer>
+      </Modal>
 
       <ConfirmDialog
         open={!!deleteTarget}

@@ -42,3 +42,14 @@ export function orderTakerName(
 ): string | null {
   return order.createdByName ?? order.waiterName ?? null;
 }
+
+/** Kitchen / receipt label for who placed or serves the order. */
+export function orderTakerReceiptLabel(
+  order: Pick<Order, 'createdByName' | 'waiterName'>,
+): { label: 'Waiter' | 'Order taker'; name: string } | null {
+  const waiter = order.waiterName?.trim();
+  if (waiter) return { label: 'Waiter', name: waiter };
+  const taker = order.createdByName?.trim();
+  if (taker) return { label: 'Order taker', name: taker };
+  return null;
+}

@@ -33,6 +33,7 @@ publicRouter.post(
 );
 publicRouter.post('/calendly/webhook', demoController.calendlyWebhook);
 publicRouter.get('/:businessSlug', publicController.getBusiness);
+publicRouter.get('/:businessSlug/pickup-display', publicController.getPickupDisplay);
 publicRouter.get('/:businessSlug/tables/:tableIdentifier', publicController.getTable);
 publicRouter.post(
   '/:businessSlug/orders',

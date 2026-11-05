@@ -1493,3 +1493,192 @@ tr:hover .platform-row-actions {
     animation: none;
   }
 }
+
+/* ── Hall / counter pickup display (customer-facing TV) ─────────────── */
+.hall-display {
+  --hall-primary: var(--primary, #009444);
+  --hall-ready: color-mix(in srgb, var(--hall-primary) 88%, #fff);
+  --hall-preparing: #c2410c;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #0f1419;
+  color: #f8fafc;
+}
+
+.hall-display--loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.hall-display__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: #111827;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hall-display__header-spacer {
+  min-height: 1px;
+}
+
+.hall-display__brand {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.35rem;
+  max-width: min(90vw, 42rem);
+}
+
+.hall-display__logo {
+  width: 3.5rem;
+  height: 3.5rem;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.hall-display__title {
+  font-size: clamp(1.25rem, 2.5vw, 2rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.hall-display__subtitle {
+  font-size: 0.875rem;
+  color: rgba(248, 250, 252, 0.65);
+  margin-top: 0.15rem;
+}
+
+.hall-display__clock {
+  grid-column: 3;
+  justify-self: end;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.hall-display__main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .hall-display__main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+}
+
+.hall-display__column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.hall-display__column--preparing {
+  background: linear-gradient(180deg, #1a120e 0%, #0f1419 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.hall-display__column--ready {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hall-primary) 22%, #0f1419) 0%, #0f1419 100%);
+}
+
+.hall-display__column-head {
+  text-align: center;
+  padding: 0.5rem 0 1rem;
+  flex-shrink: 0;
+}
+
+.hall-display__column-head h2 {
+  font-size: clamp(1.35rem, 2.8vw, 2.5rem);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hall-display__column--preparing .hall-display__column-head h2 {
+  color: #fdba74;
+}
+
+.hall-display__column--ready .hall-display__column-head h2 {
+  color: var(--hall-ready);
+}
+
+.hall-display__column-head p {
+  margin-top: 0.35rem;
+  font-size: clamp(0.8rem, 1.4vw, 1rem);
+  color: rgba(248, 250, 252, 0.55);
+}
+
+.hall-display__grid {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.75rem;
+  flex: 1;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.hall-display__ticket {
+  min-width: clamp(4.5rem, 12vw, 7rem);
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  font-size: clamp(2rem, 5vw, 3.75rem);
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.hall-display__grid--preparing .hall-display__ticket {
+  background: rgba(251, 146, 60, 0.15);
+  border: 2px solid rgba(251, 146, 60, 0.45);
+  color: #ffedd5;
+}
+
+.hall-display__grid--ready .hall-display__ticket {
+  background: color-mix(in srgb, var(--hall-primary) 35%, transparent);
+  border: 3px solid var(--hall-primary);
+  color: #fff;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--hall-primary) 35%, transparent);
+}
+
+.hall-display__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: 300;
+}
+
+.hall-display__footer {
+  text-align: center;
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, 0.45);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}

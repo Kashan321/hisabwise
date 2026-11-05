@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Icon, Skeleton, Spinner } from '@/components/ui';
 import { elapsedTimer, isTimerWarning } from '@/components/orders/order-badges';
+import { resolveKitchenBoardTableLabel } from '@/lib/kitchen-order-label';
 import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
 import type { Order } from '@/lib/api/types';
 import {

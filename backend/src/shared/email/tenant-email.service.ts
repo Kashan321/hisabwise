@@ -1,5 +1,6 @@
 import { createHash, randomInt } from 'crypto';
 import { EmailVerificationPurpose } from '@prisma/client';
+import { buildTenantPath, getPublicAppUrl } from '../../config/public-app-url';
 import { env } from '../../config/env';
 import { prisma } from '../database/prisma-client';
 import { logger } from '../logger/logger';
@@ -119,11 +120,13 @@ export class TenantEmailService {
     const owner = await resolveBusinessOwnerRecipient(businessId);
     if (!owner?.email) return { sent: false, reason: 'NO_OWNER_EMAIL' };
 
-    const dashboardUrl = `${env.APP_URL.replace(/\/$/, '')}/${business.slug}/dashboard`;
+    const dashboardUrl = buildTenantPath(business.slug, '/dashboard');
+    const publicSiteUrl = `${getPublicAppUrl()}/${business.slug}`;
     const template = welcomeOnboardingEmail({
       ownerName: owner.name,
       businessName: business.name,
       dashboardUrl,
+      publicSiteUrl,
       slug: business.slug,
     });
     const result = await sendRawEmail({ to: owner.email, ...template });

@@ -25,6 +25,12 @@ import { PosLiveOrdersStripe } from '@/components/orders/pos-live-orders-stripe'
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
 import { WeightEntryModal } from '@/components/orders/weight-entry-modal';
 import { formatApiError } from '@/lib/api/errors';
+import {
+  getOrCreateCheckoutIdempotencyKey,
+  readPendingCheckout,
+  resetCheckoutIdempotencyKey,
+} from '@/lib/order-checkout-idempotency';
+import { useNetworkStatus } from '@/lib/hooks/use-network-status';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import {
@@ -893,6 +899,10 @@ export function PosOrderScreen({
   });
 
   const createOrder = useCreateOrder();
+  const network = useNetworkStatus();
+  const checkoutInFlightRef = useRef(false);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const addOrderItems = useAddOrderItems();
   const updateOrderPricing = useUpdateOrderPricing();
   const adjustOrderItem = useAdjustOrderItemQuantity();
@@ -1768,7 +1778,28 @@ export function PosOrderScreen({
     setSelectedCustomer(null);
   }
 
+  useEffect(() => {
+    const pending = readPendingCheckout(slug);
+    if (!pending) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await apiFetch<{ order: Order | null }>(
+          `/orders/idempotency/${pending.idempotencyKey}`,
+        );
+        if (cancelled || !data.order) return;
+        resetCheckoutIdempotencyKey(slug);
+      } catch {
+        /* keep pending key for safe retry */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
   function clearOrder() {
+    resetCheckoutIdempotencyKey(slug);
     setCart({});
     setCartOpen(false);
     if (!existingOrderId) {
@@ -1798,18 +1829,114 @@ export function PosOrderScreen({
       return;
     }
     if (!validateDeliveryDetails()) return;
+    if (checkoutInFlightRef.current) return;
 
+    checkoutInFlightRef.current = true;
+    setCheckoutBusy(true);
+    setCheckoutMessage('Processing your order. Please do not click again.');
+    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
     try {
       if (heldOrderId) {
         await cancelHeldOrder(heldOrderId);
       }
-      await createOrder.mutateAsync(buildCreateOrderPayload(items, true));
-      toast.success('Order held — start a new order anytime');
+      const data = await createOrder.mutateAsync({
+        ...buildCreateOrderPayload(items, true),
+        idempotencyKey,
+      });
+      resetCheckoutIdempotencyKey(slug);
+      toast.success(
+        data.idempotentReplay ? 'Order confirmed (already held).' : 'Order held — start a new order anytime',
+      );
       void queryClient.invalidateQueries({ queryKey: ['orders'] });
       clearOrder();
       setCartOpen(false);
     } catch (err) {
-      toast.error(formatApiError(err));
+      toast.error(formatApiError(err) || 'Unable to confirm order. Please retry safely.');
+    } finally {
+      checkoutInFlightRef.current = false;
+      setCheckoutBusy(false);
+      setCheckoutMessage(null);
+    }
+  }
+
+  async function processNewOrderSuccess(data: { order: Order; idempotentReplay?: boolean }, asDraft: boolean) {
+    if (heldOrderId) {
+      await cancelHeldOrder(heldOrderId);
+    }
+    resetCheckoutIdempotencyKey(slug);
+    toast.success(
+      data.idempotentReplay
+        ? 'Order created successfully.'
+        : asDraft
+          ? 'Draft order saved'
+          : waiterMode
+            ? 'Order placed'
+            : 'Order punched',
+    );
+    if (!customerId && orderMode === 'DELIVERY' && customerName.trim() && customerPhone.trim()) {
+      toast.success('New customer saved to your customer list');
+    }
+    void queryClient.invalidateQueries({ queryKey: ['customers'] });
+    void queryClient.invalidateQueries({ queryKey: ['orders'] });
+    clearOrder();
+    const destination = waiterMode ? `/${slug}/waiter/orders` : `/${slug}/orders`;
+    if (asDraft) {
+      router.push(destination);
+      return;
+    }
+    const addMoreHref = isOpenTabOrderType(data.order.orderType)
+      ? posAddItemsHref(slug, data.order, posBasePath)
+      : undefined;
+    if (waiterMode) {
+      queuePrintBillPrompt(
+        data.order,
+        'order-placed',
+        () => router.push(destination),
+        addMoreHref ? () => router.push(addMoreHref) : undefined,
+      );
+    } else {
+      setPunchedOrder(data.order);
+    }
+  }
+
+  async function submitNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
+    if (checkoutInFlightRef.current) return;
+
+    if (!network.online) {
+      toast.error('Internet connection lost. Your checkout status is being checked.');
+      const pending = readPendingCheckout(slug);
+      if (pending) {
+        try {
+          const data = await apiFetch<{ order: Order | null }>(
+            `/orders/idempotency/${pending.idempotencyKey}`,
+          );
+          if (data.order) {
+            await processNewOrderSuccess({ order: data.order, idempotentReplay: true }, asDraft);
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      return;
+    }
+
+    checkoutInFlightRef.current = true;
+    setCheckoutBusy(true);
+    setCheckoutMessage('Processing your order. Please do not click again.');
+    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
+    try {
+      const data = await createOrder.mutateAsync({
+        ...buildCreateOrderPayload(items, waiterMode ? asDraft : false),
+        idempotencyKey,
+      });
+      await processNewOrderSuccess(data, asDraft);
+    } catch (err) {
+      toast.error(formatApiError(err) || 'Unable to confirm order. Please retry safely.');
+    } finally {
+      checkoutInFlightRef.current = false;
+      setCheckoutBusy(false);
+      setCheckoutMessage(null);
     }
   }
 
@@ -1851,44 +1978,7 @@ export function PosOrderScreen({
 
     if (!validateDeliveryDetails()) return;
 
-    createOrder.mutate(
-      buildCreateOrderPayload(items, waiterMode ? asDraft : false),
-      {
-        onSuccess: async (data) => {
-          if (heldOrderId) {
-            await cancelHeldOrder(heldOrderId);
-          }
-          toast.success(
-            asDraft ? 'Draft order saved' : waiterMode ? 'Order placed' : 'Order punched',
-          );
-          if (!customerId && orderMode === 'DELIVERY' && customerName.trim() && customerPhone.trim()) {
-            toast.success('New customer saved to your customer list');
-          }
-          void queryClient.invalidateQueries({ queryKey: ['customers'] });
-          void queryClient.invalidateQueries({ queryKey: ['orders'] });
-          clearOrder();
-          const destination = waiterMode ? `/${slug}/waiter/orders` : `/${slug}/orders`;
-          if (asDraft) {
-            router.push(destination);
-            return;
-          }
-          const addMoreHref = isOpenTabOrderType(data.order.orderType)
-            ? posAddItemsHref(slug, data.order, posBasePath)
-            : undefined;
-          if (waiterMode) {
-            queuePrintBillPrompt(
-              data.order,
-              'order-placed',
-              () => router.push(destination),
-              addMoreHref ? () => router.push(addMoreHref) : undefined,
-            );
-          } else {
-            setPunchedOrder(data.order);
-          }
-        },
-        onError: (err) => toast.error(formatApiError(err)),
-      },
-    );
+    void submitNewOrder(items, asDraft);
   }
 
   async function handlePlaceHeldDraftOrder() {
@@ -2373,6 +2463,8 @@ export function PosOrderScreen({
     : pricing.totalAmount;
   const primaryCheckoutDisabled =
     orderLocked ||
+    isSubmitting ||
+    checkoutBusy ||
     (existingOrderId
       ? isHeldDraftOrder
         ? existingOrderLines.length === 0 && cartLines.length === 0
@@ -2403,6 +2495,19 @@ export function PosOrderScreen({
 
   const checkoutFooter = (
     <div className="w-full space-y-2">
+      {(!network.online || checkoutMessage) && (
+        <div
+          className={`rounded-lg px-3 py-2 text-xs font-medium ${
+            !network.online
+              ? 'bg-error-container/40 text-on-error-container'
+              : 'bg-tertiary-container/50 text-on-surface'
+          }`}
+        >
+          {!network.online
+            ? 'Internet connection lost. Your checkout status is being checked.'
+            : checkoutMessage}
+        </div>
+      )}
       {existingOrderId && existingOrder && (
         <div className="space-y-1.5 font-caption border-b border-outline-variant/15 pb-3">
           <div className="flex justify-between gap-3">

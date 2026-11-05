@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PlatformLayout } from '@/components/layouts/platform-layout';
 import { ReceiptTemplateEditor } from '@/components/receipt/receipt-template-editor';
 import { Button, SelectField, Spinner } from '@/components/ui';
@@ -15,7 +15,13 @@ import {
   usePlatformBusinessReceiptTemplate,
   usePlatformReceiptTemplate,
 } from '@/lib/hooks/queries';
-import { DEFAULT_RECEIPT_TEMPLATE, type ReceiptTemplate } from '@/lib/receipt/receipt-template';
+import {
+  DEFAULT_RECEIPT_TEMPLATE,
+  mergeReceiptTemplate,
+  type ReceiptTemplate,
+  type ReceiptTemplateOverride,
+} from '@/lib/receipt/receipt-template';
+import type { ReceiptTemplateLabels } from '@/lib/receipt/receipt-format';
 import { SAMPLE_RECEIPT_ORDER } from '@/lib/receipt/sample-order';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { renderOrderReceiptHtml } from '@/lib/print-order-receipt';
@@ -37,9 +43,13 @@ export default function PlatformReceiptsPage() {
 
   const updateDefault = useUpdatePlatformReceiptTemplate();
   const updateTenant = useUpdateBusinessReceiptTemplate(selectedBusinessId);
+  const defaultDirtyRef = useRef(false);
+  const tenantDirtyRef = useRef(false);
 
   useEffect(() => {
-    if (platformTemplate) setDefaultTemplate(platformTemplate);
+    if (platformTemplate && !defaultDirtyRef.current) {
+      setDefaultTemplate(mergeReceiptTemplate(platformTemplate, null));
+    }
   }, [platformTemplate]);
 
   useEffect(() => {
@@ -49,11 +59,20 @@ export default function PlatformReceiptsPage() {
   }, [businesses, selectedBusinessId]);
 
   useEffect(() => {
-    if (tenantBundle) setTenantTemplate(tenantBundle.resolved);
+    tenantDirtyRef.current = false;
+  }, [selectedBusinessId]);
+
+  useEffect(() => {
+    if (tenantBundle && !tenantDirtyRef.current) {
+      setTenantTemplate(mergeReceiptTemplate(tenantBundle.resolved, null));
+    }
   }, [tenantBundle]);
 
+  const previewTemplate = tab === 'default' ? defaultTemplate : tenantTemplate;
+  const previewKey = useMemo(() => JSON.stringify(previewTemplate), [previewTemplate]);
+
   const previewHtml = useMemo(() => {
-    const template = tab === 'default' ? defaultTemplate : tenantTemplate;
+    const template = previewTemplate;
     const business = businesses.find((b) => b.id === selectedBusinessId);
     return renderOrderReceiptHtml(SAMPLE_RECEIPT_ORDER, {
       tableLabel: 'Table 5',
@@ -68,11 +87,15 @@ export default function PlatformReceiptsPage() {
       currency: 'PKR',
       receiptTemplate: template,
     });
-  }, [tab, defaultTemplate, tenantTemplate, businesses, selectedBusinessId]);
+  }, [previewTemplate, businesses, selectedBusinessId]);
 
   async function saveDefault() {
     try {
-      await updateDefault.mutateAsync(defaultTemplate);
+      const { template } = await updateDefault.mutateAsync(
+        mergeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE, defaultTemplate),
+      );
+      defaultDirtyRef.current = false;
+      setDefaultTemplate(mergeReceiptTemplate(template, null));
       toast.success('Default receipt saved');
     } catch (err) {
       toast.error(formatApiError(err));
@@ -81,9 +104,14 @@ export default function PlatformReceiptsPage() {
 
   async function saveTenantOverride() {
     if (!selectedBusinessId || !tenantBundle) return;
-    const override = diffOverride(tenantBundle.platformTemplate, tenantTemplate);
+    const platform = mergeReceiptTemplate(tenantBundle.platformTemplate, null);
+    const override = diffOverride(platform, tenantTemplate);
     try {
-      await updateTenant.mutateAsync(Object.keys(override).length ? override : null);
+      const bundle = await updateTenant.mutateAsync(
+        Object.keys(override).length ? override : null,
+      );
+      tenantDirtyRef.current = false;
+      setTenantTemplate(mergeReceiptTemplate(bundle.resolved, null));
       toast.success('Tenant receipt override saved');
     } catch (err) {
       toast.error(formatApiError(err));
@@ -93,7 +121,9 @@ export default function PlatformReceiptsPage() {
   async function clearTenantOverride() {
     if (!selectedBusinessId) return;
     try {
-      await updateTenant.mutateAsync(null);
+      const bundle = await updateTenant.mutateAsync(null);
+      tenantDirtyRef.current = false;
+      setTenantTemplate(mergeReceiptTemplate(bundle.resolved, null));
       toast.success('Tenant override cleared — using default receipt');
     } catch (err) {
       toast.error(formatApiError(err));
@@ -158,7 +188,15 @@ export default function PlatformReceiptsPage() {
 
             <ReceiptTemplateEditor
               value={tab === 'default' ? defaultTemplate : tenantTemplate}
-              onChange={tab === 'default' ? setDefaultTemplate : setTenantTemplate}
+              onChange={(next) => {
+                if (tab === 'default') {
+                  defaultDirtyRef.current = true;
+                  setDefaultTemplate(next);
+                } else {
+                  tenantDirtyRef.current = true;
+                  setTenantTemplate(next);
+                }
+              }}
             />
 
             <div className="flex flex-wrap gap-3">
@@ -200,6 +238,7 @@ export default function PlatformReceiptsPage() {
             <h3 className="font-title-lg text-primary mb-3">Live preview</h3>
             <div className="overflow-auto rounded-xl border border-outline-variant/20 bg-white p-2 max-h-[80vh]">
               <iframe
+                key={previewKey}
                 title="Receipt preview"
                 srcDoc={previewHtml}
                 className="w-full min-h-[720px] border-0 bg-white"
@@ -212,9 +251,34 @@ export default function PlatformReceiptsPage() {
   );
 }
 
-function diffOverride(platform: ReceiptTemplate, resolved: ReceiptTemplate): Partial<ReceiptTemplate> {
-  const entries = Object.entries(resolved).filter(
-    ([key, value]) => platform[key as keyof ReceiptTemplate] !== value,
-  );
-  return Object.fromEntries(entries) as Partial<ReceiptTemplate>;
+function diffLabels(
+  platform: ReceiptTemplateLabels,
+  resolved: ReceiptTemplateLabels,
+): Partial<ReceiptTemplateLabels> {
+  const out: Partial<ReceiptTemplateLabels> = {};
+  for (const key of Object.keys(platform) as (keyof ReceiptTemplateLabels)[]) {
+    if (platform[key] !== resolved[key]) out[key] = resolved[key];
+  }
+  return out;
+}
+
+function diffOverride(platform: ReceiptTemplate, resolved: ReceiptTemplate): ReceiptTemplateOverride {
+  const override: ReceiptTemplateOverride = {};
+  for (const key of Object.keys(resolved) as (keyof ReceiptTemplate)[]) {
+    if (key === 'labels') {
+      const labelDiff = diffLabels(platform.labels, resolved.labels);
+      if (Object.keys(labelDiff).length > 0) override.labels = labelDiff;
+      continue;
+    }
+    if (key === 'customBlocks') {
+      if (JSON.stringify(platform.customBlocks) !== JSON.stringify(resolved.customBlocks)) {
+        override.customBlocks = resolved.customBlocks;
+      }
+      continue;
+    }
+    if (platform[key] !== resolved[key]) {
+      (override as Record<string, unknown>)[key] = resolved[key];
+    }
+  }
+  return override;
 }

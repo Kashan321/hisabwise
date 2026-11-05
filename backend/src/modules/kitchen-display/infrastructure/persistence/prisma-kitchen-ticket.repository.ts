@@ -7,6 +7,10 @@ import {
   OrderNotFoundError,
   OrderNotModifiableError,
 } from '../../../orders/domain/errors/order.errors';
+import {
+  mapKitchenStatusToPickupColumn,
+  type PickupDisplayTicket,
+} from '../../domain/pickup-display.entity';
 import { syncOrderStatusFromKitchenTickets } from '../../application/services/kitchen-ticket.service';
 
 const ACTIVE_STATUSES: KitchenTicketStatus[] = ['RECEIVED', 'PREPARING', 'READY'];
@@ -175,6 +179,52 @@ export class PrismaKitchenTicketRepository {
       include: ticketInclude,
     });
     return ticket ? mapKitchenQueueTicket(ticket) : null;
+  }
+
+  /** Counter / hall customer board — ticket numbers only, no PII. */
+  async listPickupDisplay(businessId: string): Promise<PickupDisplayTicket[]> {
+    const tickets = await prisma.kitchenTicket.findMany({
+      where: {
+        businessId,
+        status: { in: ACTIVE_STATUSES },
+        order: {
+          isDraft: false,
+          status: { notIn: ['COMPLETED', 'CANCELLED'] },
+          orderType: { not: 'DELIVERY' },
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        order: {
+          select: {
+            orderType: true,
+            ticketNumber: true,
+            ticketPrefix: true,
+            id: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const result: PickupDisplayTicket[] = [];
+    for (const ticket of tickets) {
+      const column = mapKitchenStatusToPickupColumn(ticket.status);
+      if (!column) continue;
+      result.push({
+        id: ticket.id,
+        displayNumber:
+          ticket.order.ticketNumber != null
+            ? formatOrderTicketLabel(ticket.order.ticketPrefix ?? '', ticket.order.ticketNumber)
+            : '—',
+        status: column,
+        orderType: ticket.order.orderType,
+        updatedAt: ticket.createdAt.toISOString(),
+      });
+    }
+    return result;
   }
 
   async updateStatus(

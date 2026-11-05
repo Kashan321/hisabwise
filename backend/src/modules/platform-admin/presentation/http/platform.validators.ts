@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { businessThemeSchema } from '../../../../shared/branding/default-theme';
 import {
+  normalizeReceiptTemplateInput,
   receiptTemplateOverrideSchema,
   receiptTemplateSchema,
 } from '../../../../shared/receipt/receipt-template';
@@ -51,7 +52,10 @@ export const createBusinessSchema = z
   })
   .merge(businessThemeSchema);
 
-export const updateReceiptTemplateSchema = receiptTemplateSchema;
+export const updateReceiptTemplateSchema = z.preprocess(
+  normalizeReceiptTemplateInput,
+  receiptTemplateSchema,
+);
 
 export const updateBusinessReceiptTemplateSchema = z.object({
   override: receiptTemplateOverrideSchema.nullable(),

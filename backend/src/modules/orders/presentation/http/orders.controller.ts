@@ -57,8 +57,24 @@ export class OrdersController {
       isDraft: req.body.isDraft ?? isWaiter,
     };
 
-    const order = await ordersModule.createOrder.execute(req.tenantContext!.businessId, input);
-    return success(res, { order }, 201);
+    const result = await ordersModule.createOrder.execute(req.tenantContext!.businessId, input);
+    return success(
+      res,
+      { order: result.order, idempotentReplay: result.idempotentReplay },
+      result.idempotentReplay ? 200 : 201,
+    );
+  });
+
+  getByIdempotencyKey = asyncHandler(async (req: Request, res: Response) => {
+    const key = String(req.params.idempotencyKey);
+    const order = await ordersModule.getOrderByIdempotencyKey.execute(
+      req.tenantContext!.businessId,
+      key,
+    );
+    if (!order) {
+      return success(res, { order: null });
+    }
+    return success(res, { order });
   });
 
   list = asyncHandler(async (req: Request, res: Response) => {

@@ -44,6 +44,7 @@ export const createOrderSchema = z
     deliveryNotes: z.string().trim().max(500).optional(),
     taxRate: z.number().min(0).max(1).optional(),
     serviceRate: z.number().min(0).max(1).optional(),
+    idempotencyKey: z.string().uuid().optional(),
     items: z.array(orderItemSchema).min(1),
   })
   .superRefine((data, ctx) => {

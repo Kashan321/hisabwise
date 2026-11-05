@@ -12,6 +12,7 @@ import { ErrorCodes } from '../../../../shared/errors/error-codes';
 import { CreateOrderInput } from '../../../orders/domain/entities/order.entity';
 import { resolveReceiptTemplateForBusiness } from '../../../receipt/receipt-template.service';
 import { resolveBusinessThemeWithPlatform } from '../../../../shared/branding/default-theme';
+import { kitchenDisplayModule } from '../../../kitchen-display/infrastructure/kitchen-display.module';
 
 export class PublicController {
   getBranding = asyncHandler(async (_req: Request, res: Response) => {
@@ -79,6 +80,34 @@ export class PublicController {
     });
   });
 
+  getPickupDisplay = asyncHandler(async (req: Request, res: Response) => {
+    const business = await prisma.business.findUnique({
+      where: { slug: String(req.params.businessSlug) },
+    });
+
+    if (!business) {
+      return fail(res, ErrorCodes.BUSINESS_NOT_FOUND, 'Business not found', 404);
+    }
+
+    const platform = await platformSettingsRepository.getOrCreate();
+    const theme = resolveBusinessThemeWithPlatform(business, platform);
+
+    const tickets = await kitchenDisplayModule.listPickupDisplay.execute(business.id);
+
+    return success(res, {
+      business: {
+        name: business.name,
+        slug: business.slug,
+        logoUrl: await filesModule.storageUrlResolver.resolveReadUrl(business.logoUrl),
+        primaryColor: theme.primaryColor,
+        secondaryColor: theme.secondaryColor,
+        backgroundColor: theme.backgroundColor,
+        textColor: theme.textColor,
+      },
+      tickets,
+    });
+  });
+
   getTable = asyncHandler(async (req: Request, res: Response) => {
     const business = await prisma.business.findUnique({
       where: { slug: String(req.params.businessSlug) },
@@ -126,6 +155,7 @@ export class PublicController {
       tableId?: string;
       items: CreateOrderInput['items'];
       notes?: string;
+      idempotencyKey?: string;
     };
 
     if (body.tableId) {
@@ -143,14 +173,19 @@ export class PublicController {
       tableId: body.tableId,
       items: body.items,
       notes: body.notes,
+      idempotencyKey: body.idempotencyKey,
     };
 
-    const order = await runWithTenantContext(
+    const result = await runWithTenantContext(
       { businessId: business.id, userId: 'public', roles: [], permissions: ['*'] },
       () => ordersModule.createOrder.execute(business.id, input),
     );
 
-    return success(res, { order }, 201);
+    return success(
+      res,
+      { order: result.order, idempotentReplay: result.idempotentReplay },
+      result.idempotentReplay ? 200 : 201,
+    );
   });
 
   getOrder = asyncHandler(async (req: Request, res: Response) => {

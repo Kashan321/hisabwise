@@ -1,11 +1,11 @@
-import { env } from '../../../config/env';
+import { buildTenantPath, getPublicAppUrl } from '../../../config/public-app-url';
 
 export function buildCounterOrderUrl(businessSlug: string): string {
-  return `${env.APP_URL}/${businessSlug}/order`;
+  return buildTenantPath(businessSlug, '/order');
 }
 
 export function buildTableOrderUrl(businessSlug: string, tableIdentifier: string): string {
-  return `${env.APP_URL}/${businessSlug}/tables/${tableIdentifier}`;
+  return `${getPublicAppUrl()}/${businessSlug}/tables/${encodeURIComponent(tableIdentifier)}`;
 }
 
 export interface QrPayload {

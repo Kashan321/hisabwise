@@ -25,6 +25,7 @@ import { apiFetch } from '@/lib/api/client';
 import { useUpdateKitchenOrderStatus } from '@/lib/hooks/mutations';
 import { useBusiness, useFloorTables, useKitchenQueue, useReceiptTemplate } from '@/lib/hooks/queries';
 import { useBusinessCurrency } from '@/lib/hooks/use-business-currency';
+import { resolveKitchenServiceLine } from '@/lib/kitchen-order-label';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import { useNetworkStatus } from '@/lib/hooks/use-network-status';
 import { kitchenBoardThemeStyle } from '@/lib/theme/theme-css';
@@ -131,9 +132,10 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
       const full = await apiFetch<{ order: Order }>(`/kitchen/tickets/${order.id}`).then(
         (d) => d.order,
       );
-      const label = order.tableId ? tableMap[order.tableId] ?? 'BAR' : 'BAR';
+      const label = resolveKitchenServiceLine(full, tableMap);
       printOrderReceipt(full, {
         tableLabel: label,
+        tableMap,
         businessName: business?.name,
         businessLogoUrl: business?.logoUrl,
         copyType: 'kitchen',

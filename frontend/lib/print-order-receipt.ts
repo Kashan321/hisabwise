@@ -5,13 +5,27 @@ import { isOrderPaidForReceipt, paymentMethodLabel } from '@/lib/payment-methods
 import { formatCurrency } from '@/lib/format-currency';
 import { formatRestaurantReceiptPhones } from '@/lib/business-phones';
 import { APP_NAME } from '@/lib/config';
-import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
+import { resolveKitchenServiceLine } from '@/lib/kitchen-order-label';
+import {
+  formatOrderLabel,
+  formatOrderShortLabel,
+  orderTakerReceiptLabel,
+} from '@/lib/order-display';
 import {
   formatOrderItemReceiptQtyLine,
   formatOrderItemWeightLine,
 } from '@/lib/order-item-display';
 import {
+  buildReceiptPlaceholderContext,
+  interpolateReceiptText,
+  normalizeCustomBlocks,
+  renderFormatLines,
+  type ReceiptCustomBlockPlacement,
+  type ReceiptPlaceholderContext,
+} from '@/lib/receipt/receipt-format';
+import {
   DEFAULT_RECEIPT_TEMPLATE,
+  mergeReceiptTemplate,
   type ReceiptTemplate,
 } from '@/lib/receipt/receipt-template';
 
@@ -23,6 +37,8 @@ export const RECEIPT_WIDTH_MM: ReceiptWidthMm = 80;
 
 export interface PrintReceiptOptions {
   tableLabel: string;
+  /** Optional floor-plan lookup when order.tableIdentifier is missing (kitchen print). */
+  tableMap?: Record<string, string>;
   businessName?: string;
   businessLocation?: string | null;
   businessPhone?: string | null;
@@ -36,7 +52,7 @@ export interface PrintReceiptOptions {
 }
 
 function resolveReceiptTemplate(options: PrintReceiptOptions): ReceiptTemplate {
-  return { ...DEFAULT_RECEIPT_TEMPLATE, ...(options.receiptTemplate ?? {}) };
+  return mergeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE, options.receiptTemplate ?? {});
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
@@ -80,6 +96,26 @@ function formatReceiptDateTime(iso: string): { date: string; time: string } {
     date: date.toLocaleDateString(undefined, { dateStyle: 'medium' }),
     time: date.toLocaleTimeString(undefined, { timeStyle: 'short' }),
   };
+}
+
+function formatKitchenReceiptDateTime(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  return {
+    date: d.toLocaleDateString('en-PK', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }),
+    time: d.toLocaleTimeString('en-PK', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }),
+  };
+}
+
+function kitchenTicketNumber(order: Order): string {
+  return formatOrderShortLabel(order).replace(/^#/, '');
 }
 
 function orderTypeLabel(order: Order): string {
@@ -127,11 +163,10 @@ function buildKitchenItemsHtml(order: Order): string {
 
       return `
         <div class="kitchen-item-group">
-          ${rowHtml(
-            escapeHtml(item.menuItemName),
-            String(item.quantity),
-            'item-row kitchen-item-row',
-          )}
+          <div class="kitchen-item-line">
+            <span class="kitchen-item-qty">${item.quantity}x</span>
+            <span class="kitchen-item-name">${escapeHtml(item.menuItemName)}</span>
+          </div>
           ${variantLine}
           ${weightLine}
           ${modifiers}
@@ -157,7 +192,8 @@ function buildItemsHtml(order: Order, showAmounts = true): string {
       const modifiers = (item.modifiers ?? [])
         .map((mod) => {
           const modPrice = Number(mod.priceAdjustment ?? 0);
-          const priceCell = modPrice !== 0 ? amount(mod.priceAdjustment) : '';
+          const priceCell =
+            showAmounts && modPrice !== 0 ? amount(mod.priceAdjustment) : '';
           return rowHtml(
             `+ ${escapeHtml(mod.modifierName)}`,
             priceCell,
@@ -170,9 +206,13 @@ function buildItemsHtml(order: Order, showAmounts = true): string {
         ? `<div class="sub-line note">${escapeHtml(item.customizationNotes)}</div>`
         : '';
 
+      const nameRow = showAmounts
+        ? rowHtml(escapeHtml(item.menuItemName), amount(item.lineTotal), 'item-row')
+        : `<div class="item-row item-row--name-only">${escapeHtml(item.menuItemName)}</div>`;
+
       return `
         <div class="item">
-          ${rowHtml(escapeHtml(item.menuItemName), amount(item.lineTotal), 'item-row')}
+          ${nameRow}
           <div class="sub-line qty-line">${qtyLine}</div>
           ${modifiers}
           ${notes}
@@ -181,44 +221,56 @@ function buildItemsHtml(order: Order, showAmounts = true): string {
     .join('');
 }
 
-function buildTotalsHtml(order: Order, currency: string): string {
+function buildTotalsHtml(order: Order, currency: string, template: ReceiptTemplate): string {
+  const labels = template.labels;
   const discount = Number(order.discountAmount ?? 0);
   const tax = Number(order.taxAmount ?? 0);
   const service = Number(order.serviceAmount ?? 0);
   const delivery = Number(order.deliveryAmount ?? 0);
 
   const lines = [
-    ...(tax > 0 ? [rowHtml('Tax', money(tax, currency))] : []),
-    ...(service > 0 ? [rowHtml('Service charge', money(service, currency))] : []),
-    ...(delivery > 0 ? [rowHtml('Delivery charge', money(delivery, currency))] : []),
-    ...(discount > 0 ? [rowHtml('Discount', `-${money(discount, currency)}`)] : []),
-    rowHtml('Subtotal', money(order.subtotal, currency)),
+    ...(tax > 0 && labels.tax ? [rowHtml(labels.tax, money(tax, currency))] : []),
+    ...(service > 0 && labels.serviceCharge
+      ? [rowHtml(labels.serviceCharge, money(service, currency))]
+      : []),
+    ...(delivery > 0 && labels.deliveryCharge
+      ? [rowHtml(labels.deliveryCharge, money(delivery, currency))]
+      : []),
+    ...(discount > 0 && labels.discount
+      ? [rowHtml(labels.discount, `-${money(discount, currency)}`)]
+      : []),
+    ...(labels.subtotal ? [rowHtml(labels.subtotal, money(order.subtotal, currency))] : []),
   ];
+
+  const totalLabel = labels.total
+    ? `<span class="grand-label">${escapeHtml(labels.total)}</span>`
+    : '<span class="grand-label">TOTAL</span>';
 
   return `
     <div class="totals">
       <div class="rule"></div>
       ${lines.join('')}
       <div class="rule"></div>
-      ${rowHtml('<span class="grand-label">TOTAL</span>', `<span class="grand-amount">${money(order.totalAmount, currency)}</span>`, 'total-row grand')}
+      ${rowHtml(totalLabel, `<span class="grand-amount">${money(order.totalAmount, currency)}</span>`, 'total-row grand')}
       <div class="rule strong"></div>
     </div>`;
 }
 
-function buildPaymentHtml(order: Order, currency: string): string {
+function buildPaymentHtml(order: Order, currency: string, template: ReceiptTemplate): string {
+  const labels = template.labels;
   const payments = order.payments ?? [];
 
   if (!payments.length) {
     if (!order.paymentMethod) return '';
     return `
       <div class="payment-section">
-        ${rowHtml('Payment Method', escapeHtml(paymentMethodLabel(order.paymentMethod).toUpperCase()))}
-        ${rowHtml('Paid', money(order.totalAmount, currency))}
+        ${labels.paymentMethod ? rowHtml(labels.paymentMethod, escapeHtml(paymentMethodLabel(order.paymentMethod).toUpperCase())) : ''}
+        ${labels.paid ? rowHtml(labels.paid, money(order.totalAmount, currency)) : ''}
       </div>`;
   }
 
   if (payments.length === 1) {
-    return buildSinglePaymentHtml(payments[0], currency);
+    return buildSinglePaymentHtml(payments[0], currency, template);
   }
 
   const lines = payments.map((payment) =>
@@ -230,12 +282,17 @@ function buildPaymentHtml(order: Order, currency: string): string {
 
   return `
     <div class="payment-section">
-      <div class="section-heading">Payment</div>
+      ${labels.paymentHeading ? `<div class="section-heading">${escapeHtml(labels.paymentHeading)}</div>` : ''}
       ${lines.join('')}
     </div>`;
 }
 
-function buildSinglePaymentHtml(payment: OrderPayment, currency: string): string {
+function buildSinglePaymentHtml(
+  payment: OrderPayment,
+  currency: string,
+  template: ReceiptTemplate,
+): string {
+  const labels = template.labels;
   const paidAmount =
     payment.amountReceived != null ? Number(payment.amountReceived) : Number(payment.amount);
   const changeAmount =
@@ -244,36 +301,186 @@ function buildSinglePaymentHtml(payment: OrderPayment, currency: string): string
       : Math.max(0, Math.round((paidAmount - Number(payment.amount)) * 100) / 100);
 
   const lines = [
-    rowHtml('Payment Method', escapeHtml(paymentMethodLabel(payment.method).toUpperCase())),
-    rowHtml('Paid', money(paidAmount, currency)),
-    ...(changeAmount > 0 ? [rowHtml('Change', money(changeAmount, currency))] : []),
-    ...(payment.referenceNumber
-      ? [rowHtml('Reference', escapeHtml(payment.referenceNumber))]
+    ...(labels.paymentMethod
+      ? [rowHtml(labels.paymentMethod, escapeHtml(paymentMethodLabel(payment.method).toUpperCase()))]
+      : []),
+    ...(labels.paid ? [rowHtml(labels.paid, money(paidAmount, currency))] : []),
+    ...(changeAmount > 0 && labels.change
+      ? [rowHtml(labels.change, money(changeAmount, currency))]
+      : []),
+    ...(payment.referenceNumber && labels.reference
+      ? [rowHtml(labels.reference, escapeHtml(payment.referenceNumber))]
       : []),
   ];
 
   return `<div class="payment-section">${lines.join('')}</div>`;
 }
 
+function buildKitchenHeaderHtml(order: Order, serviceLine: string): string {
+  const { date, time } = formatKitchenReceiptDateTime(order.createdAt);
+  const taker = orderTakerReceiptLabel(order);
+
+  return `
+    <div class="kitchen-hero-number">${escapeHtml(kitchenTicketNumber(order))}</div>
+    <div class="kitchen-service">${escapeHtml(serviceLine)}</div>
+    <div class="kitchen-datetime meta-row">
+      <span class="col-left">${escapeHtml(date)}</span>
+      <span class="col-right">${escapeHtml(time)}</span>
+    </div>
+    ${
+      taker
+        ? `<div class="kitchen-server meta-line">${escapeHtml(taker.label)}: ${escapeHtml(taker.name)}</div>`
+        : ''
+    }
+    ${
+      order.notes
+        ? `<div class="kitchen-order-note meta-line note">${escapeHtml(order.notes)}</div>`
+        : ''
+    }`;
+}
+
+function buildCustomTextBlock(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<div class="custom-text-line">${escapeHtml(line)}</div>`)
+    .join('');
+  return `<div class="custom-receipt-block">${lines}</div>`;
+}
+
+function orderTakerPlainLine(order: Order, template: ReceiptTemplate): string {
+  const taker = orderTakerReceiptLabel(order);
+  if (!taker) return '';
+  return `${taker.label}${template.labels.orderTakerSeparator}${taker.name}`;
+}
+
+function applyPlaceholderVisibility(
+  template: ReceiptTemplate,
+  ctx: ReceiptPlaceholderContext,
+): ReceiptPlaceholderContext {
+  const next = { ...ctx };
+  if (!template.showBusinessName) next.businessName = '';
+  if (!template.showAddress) next.address = '';
+  if (!template.showPhone) next.phone = '';
+  if (!template.showOrderNumber) next.orderNumber = '';
+  if (!template.showDateTime) {
+    next.date = '';
+    next.time = '';
+    next.datetime = '';
+  }
+  if (!template.showTableAndOrderType) {
+    next.table = '';
+    next.orderType = '';
+  }
+  if (!template.showOrderTaker) next.orderTaker = '';
+  if (!template.showPromotion) next.promotion = '';
+  if (!template.showOrderNotes) next.notes = '';
+  if (!template.showTotals) {
+    next.subtotal = '';
+    next.total = '';
+  }
+  if (!template.showCopyBanner) next.copyBanner = '';
+  return next;
+}
+
+function buildReceiptContext(
+  order: Order,
+  template: ReceiptTemplate,
+  input: {
+    tableLabel: string;
+    businessName: string;
+    addressLine: string;
+    phoneLine: string;
+    copyBanner: string;
+    currency: string;
+  },
+): ReceiptPlaceholderContext {
+  const { date, time } = formatReceiptDateTime(order.createdAt);
+  const ctx = buildReceiptPlaceholderContext({
+    order,
+    template,
+    tableLabel: input.tableLabel,
+    businessName: input.businessName,
+    addressLine: input.addressLine,
+    phoneLine: input.phoneLine,
+    copyBanner: input.copyBanner,
+    currency: input.currency,
+    formatOrderNumber,
+    orderTypeLabel,
+    orderTakerLine: (o) => orderTakerPlainLine(o, template),
+    formatDate: () => date,
+    formatTime: () => time,
+    formatMoney: (v) => money(v, input.currency),
+  });
+  return applyPlaceholderVisibility(template, ctx);
+}
+
+function renderCustomBlocksHtml(
+  placement: ReceiptCustomBlockPlacement,
+  template: ReceiptTemplate,
+  ctx: ReceiptPlaceholderContext,
+): string {
+  return normalizeCustomBlocks(template.customBlocks)
+    .filter((block) => block.placement === placement)
+    .map((block) => buildCustomTextBlock(interpolateReceiptText(block.text, ctx)))
+    .join('');
+}
+
 function buildOrderMetaHtml(
   order: Order,
   tableLabel: string,
   copyType: ReceiptCopyType,
+  template: ReceiptTemplate,
+  ctx: ReceiptPlaceholderContext,
 ): string {
+  if (copyType === 'kitchen') {
+    return buildKitchenHeaderHtml(order, tableLabel);
+  }
+
+  const customFormat = template.customerMetaFormat.trim();
+  if (customFormat) {
+    return renderFormatLines(customFormat, ctx)
+      .map((line) => `<div class="meta-line">${escapeHtml(line)}</div>`)
+      .join('');
+  }
+
   const { date, time } = formatReceiptDateTime(order.createdAt);
-  const server = orderTakerName(order);
+  const taker = orderTakerReceiptLabel(order);
+  const labels = template.labels;
+  const sep = labels.dateTimeSeparator || ' • ';
 
-  const lines = [
-    `<div class="order-id">${escapeHtml(formatOrderNumber(order))}</div>`,
-    `<div class="order-datetime">${escapeHtml(date)} &bull; ${escapeHtml(time)}</div>`,
-    rowHtml(`Table: ${escapeHtml(tableLabel)}`, escapeHtml(orderTypeLabel(order)), 'meta-row'),
-  ];
+  const lines: string[] = [];
 
-  if (copyType === 'customer') {
-    if (server) lines.push(`<div class="meta-line">Server: ${escapeHtml(server)}</div>`);
-    if (order.promotionTitle) {
-      lines.push(`<div class="meta-line">Promotion: ${escapeHtml(order.promotionTitle)}</div>`);
-    }
+  if (template.showOrderNumber) {
+    lines.push(`<div class="order-id">${escapeHtml(formatOrderNumber(order))}</div>`);
+  }
+  if (template.showDateTime) {
+    lines.push(
+      `<div class="order-datetime">${escapeHtml(date)}${escapeHtml(sep)}${escapeHtml(time)}</div>`,
+    );
+  }
+  if (template.showTableAndOrderType) {
+    const tableLeft =
+      labels.tablePrefix === ''
+        ? escapeHtml(tableLabel)
+        : `${escapeHtml(labels.tablePrefix)} ${escapeHtml(tableLabel)}`;
+    lines.push(rowHtml(tableLeft, escapeHtml(orderTypeLabel(order)), 'meta-row'));
+  }
+
+  if (template.showOrderTaker && taker) {
+    lines.push(
+      `<div class="meta-line">${escapeHtml(taker.label)}${escapeHtml(labels.orderTakerSeparator)}${escapeHtml(taker.name)}</div>`,
+    );
+  }
+  if (template.showPromotion && order.promotionTitle) {
+    const promoLine =
+      labels.promotionPrefix === ''
+        ? escapeHtml(order.promotionTitle)
+        : `${escapeHtml(labels.promotionPrefix)} ${escapeHtml(order.promotionTitle)}`;
+    lines.push(`<div class="meta-line">${promoLine}</div>`);
   }
 
   return lines.join('');
@@ -290,8 +497,25 @@ function buildCustomerFooter(order: Order, template: ReceiptTemplate): string {
     }
   }
 
+  const thanksBlock = template.showThanksMessage
+    ? `<div class="footer-thanks">${escapeHtml(template.thanksMessage)}</div>`
+    : '';
+  const brandBlock = template.showBrandLine
+    ? `<div class="footer-brand-line">${escapeHtml(template.brandLine)}</div>`
+    : '';
+  const contactBlock =
+    template.showContactLine && template.contactLine.trim()
+      ? `<div class="footer-contact">${escapeHtml(template.contactLine.trim())}</div>`
+      : '';
+
+  const hasFooterContent =
+    barcodeSvg || thanksBlock || brandBlock || contactBlock || template.customTextBottom.trim();
+
+  if (!hasFooterContent) return '';
+
   return `
     <footer class="footer-compact">
+      ${buildCustomTextBlock(template.customTextBottom)}
       ${
         barcodeSvg
           ? `<div class="barcode-block">
@@ -300,13 +524,9 @@ function buildCustomerFooter(order: Order, template: ReceiptTemplate): string {
             </div>`
           : ''
       }
-      <div class="footer-thanks">${escapeHtml(template.thanksMessage)}</div>
-      <div class="footer-brand-line">${escapeHtml(template.brandLine)}</div>
-      ${
-        template.contactLine.trim()
-          ? `<div class="footer-contact">${escapeHtml(template.contactLine.trim())}</div>`
-          : ''
-      }
+      ${thanksBlock}
+      ${brandBlock}
+      ${contactBlock}
     </footer>`;
 }
 
@@ -539,6 +759,25 @@ function buildReceiptStyles(
       font-weight: 700;
       color: #000;
     }
+    .custom-receipt-block {
+      margin: 4px 0 2px;
+      text-align: center;
+      font-size: ${sm}px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: #000;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .custom-text-line + .custom-text-line {
+      margin-top: 2px;
+    }
+    .item-row--name-only {
+      font-size: ${md}px;
+      font-weight: 800;
+      color: #000;
+      word-wrap: break-word;
+    }
     .totals {
       font-size: ${base}px;
       font-weight: 700;
@@ -651,12 +890,74 @@ function buildReceiptStyles(
       margin-top: 2px;
       text-transform: uppercase;
     }
-    .receipt.kitchen-copy .kitchen-title {
+    .receipt.kitchen-copy {
+      padding-top: 1mm;
+    }
+    .receipt.kitchen-copy .kitchen-hero-number {
+      background: #000;
+      color: #fff;
+      text-align: center;
+      font-size: ${compact ? 26 : 32}px;
+      font-weight: 800;
+      line-height: 1.1;
+      padding: 7px 4px;
+      margin: 0 -1px 0;
+      letter-spacing: 0.5px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .receipt.kitchen-copy .kitchen-service {
+      text-align: center;
       font-size: ${lg}px;
       font-weight: 800;
-      letter-spacing: 0.6px;
       text-transform: uppercase;
+      letter-spacing: 0.3px;
+      padding: 5px 2px 3px;
+      line-height: 1.2;
+    }
+    .receipt.kitchen-copy .kitchen-datetime {
+      font-size: ${base}px;
+      font-weight: 700;
+      padding: 0 1px 4px;
+      border-bottom: 1px solid #000;
+      margin-bottom: 4px;
+    }
+    .receipt.kitchen-copy .kitchen-server,
+    .receipt.kitchen-copy .kitchen-order-note {
+      font-size: ${sm}px;
       margin-bottom: 2px;
+    }
+    .receipt.kitchen-copy .kitchen-item-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 4px 0 2px;
+      line-height: 1.25;
+    }
+    .receipt.kitchen-copy .kitchen-item-qty {
+      flex-shrink: 0;
+      min-width: 2em;
+      font-size: ${lg}px;
+      font-weight: 800;
+      text-transform: lowercase;
+    }
+    .receipt.kitchen-copy .kitchen-item-name {
+      flex: 1;
+      font-size: ${md}px;
+      font-weight: 800;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .receipt.kitchen-copy .order-meta {
+      margin-bottom: 2px;
+    }
+    .receipt.kitchen-copy .kitchen-items-header {
+      display: none;
+    }
+    .receipt.kitchen-copy .kitchen-title,
+    .receipt.kitchen-copy .store-name,
+    .receipt.kitchen-copy .copy-banner {
+      display: none;
     }
     @page {
       size: ${widthMm}mm auto;
@@ -785,20 +1086,72 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
   const widthMm = options.receiptWidthMm ?? template.receiptWidthMm ?? RECEIPT_WIDTH_MM;
   const isKitchen = copyType === 'kitchen';
   const isUnpaidCustomerCopy = !isKitchen && copyLabel === UNPAID_RECEIPT_BANNER;
+  const kitchenServiceLine = isKitchen
+    ? resolveKitchenServiceLine(order, options.tableMap)
+    : tableLabel;
+  const metaTableLabel = isKitchen ? kitchenServiceLine : tableLabel;
 
   const printScript = autoPrint ? buildPrintScript(widthMm) : '';
 
+  const labels = template.labels;
+  const showItemAmounts = !isKitchen && template.showItemAmounts;
+  const itemCol = labels.itemsColumn.trim();
+  const amountCol = labels.amountColumn.trim();
   const itemsHeader = isKitchen
-    ? `<div class="items-header kitchen-items-header">
-        <span class="col-left">Item</span>
-        <span class="col-right">Qnt</span>
+    ? `<div class="items-header kitchen-items-header" aria-hidden="true"></div>`
+    : !itemCol && !amountCol
+      ? ''
+      : showItemAmounts && itemCol && amountCol
+        ? `<div class="items-header">
+        <span class="col-left">${escapeHtml(itemCol)}</span>
+        <span class="col-right">${escapeHtml(amountCol)}</span>
       </div>`
-    : `<div class="items-header">
-        <span class="col-left">Item</span>
-        <span class="col-right">Amount</span>
-      </div>`;
+        : itemCol
+          ? `<div class="items-header">
+        <span class="col-left">${escapeHtml(itemCol)}</span>
+      </div>`
+          : '';
+
+  const phoneDisplay = restaurantPhonesJoined
+    ? template.labels.phonePrefix === ''
+      ? escapeHtml(restaurantPhonesJoined)
+      : `${escapeHtml(template.labels.phonePrefix)} ${escapeHtml(restaurantPhonesJoined)}`
+    : '';
+
+  const receiptCtx = !isKitchen
+    ? buildReceiptContext(order, template, {
+        tableLabel,
+        businessName,
+        addressLine: addressLine ?? '',
+        phoneLine: restaurantPhonesJoined ?? '',
+        copyBanner: copyLabel,
+        currency,
+      })
+    : ({} as ReceiptPlaceholderContext);
 
   const customerFooter = buildCustomerFooter(order, template);
+  const customTopBlock = !isKitchen
+    ? buildCustomTextBlock(template.customTextTop) +
+      renderCustomBlocksHtml('after_header', template, receiptCtx)
+    : '';
+  const beforeItemsBlock = !isKitchen
+    ? renderCustomBlocksHtml('before_items', template, receiptCtx)
+    : '';
+  const afterItemsBlock = !isKitchen
+    ? renderCustomBlocksHtml('after_items', template, receiptCtx)
+    : '';
+  const afterPaymentBlock = !isKitchen
+    ? renderCustomBlocksHtml('after_payment', template, receiptCtx)
+    : '';
+  const beforeFooterBlock = !isKitchen
+    ? renderCustomBlocksHtml('before_footer', template, receiptCtx)
+    : '';
+
+  const showLogo = !isKitchen && template.showLogo && Boolean(businessLogoUrl);
+  const showName = !isKitchen && template.showBusinessName;
+  const showAddress = !isKitchen && template.showAddress && Boolean(addressLine);
+  const showPhone = !isKitchen && template.showPhone && Boolean(restaurantPhonesJoined);
+  const showCopyBanner = !isKitchen && template.showCopyBanner;
 
   return `<!DOCTYPE html>
 <html>
@@ -812,40 +1165,56 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
   <div class="receipt ${isKitchen ? 'kitchen-copy' : 'customer-copy'}">
     <header class="center ${isKitchen ? '' : 'customer-header'}">
       ${isKitchen ? `<div class="kitchen-title">Kitchen Ticket</div>` : ''}
-      ${!isKitchen && businessLogoUrl ? `<img src="${escapeHtml(businessLogoUrl)}" alt="" class="logo" />` : ''}
-      <div class="store-name">${escapeHtml(businessName)}</div>
-      ${!isKitchen && addressLine ? `<div class="store-address">${escapeHtml(addressLine)}</div>` : ''}
-      ${!isKitchen && restaurantPhonesJoined ? `<div class="store-phone">Tel: ${escapeHtml(restaurantPhonesJoined)}</div>` : ''}
-      <div class="copy-banner ${isKitchen ? 'kitchen' : ''}${isUnpaidCustomerCopy ? ' unpaid' : ''}">${escapeHtml(copyLabel)}</div>
+      ${showLogo ? `<img src="${escapeHtml(businessLogoUrl!)}" alt="" class="logo" />` : ''}
+      ${showName ? `<div class="store-name">${escapeHtml(businessName)}</div>` : ''}
+      ${showAddress ? `<div class="store-address">${escapeHtml(addressLine!)}</div>` : ''}
+      ${showPhone ? `<div class="store-phone">${phoneDisplay}</div>` : ''}
+      ${
+        showCopyBanner
+          ? `<div class="copy-banner ${isKitchen ? 'kitchen' : ''}${isUnpaidCustomerCopy ? ' unpaid' : ''}">${escapeHtml(copyLabel)}</div>`
+          : isKitchen
+            ? `<div class="copy-banner kitchen">${escapeHtml(copyLabel)}</div>`
+            : ''
+      }
     </header>
+
+    ${customTopBlock}
 
     <div class="rule"></div>
 
     <section class="order-meta">
-      ${buildOrderMetaHtml(order, tableLabel, copyType)}
+      ${buildOrderMetaHtml(order, metaTableLabel, copyType, template, receiptCtx)}
     </section>
 
-    <div class="rule"></div>
+    ${beforeItemsBlock}
+
+    ${isKitchen ? '' : '<div class="rule"></div>'}
 
     <section class="items-section${isKitchen ? ' kitchen-items-section' : ''}">
       ${itemsHeader}
       ${isKitchen ? '<div class="kitchen-rule-solid"></div>' : ''}
-      ${isKitchen ? buildKitchenItemsHtml(order) : buildItemsHtml(order)}
+      ${isKitchen ? buildKitchenItemsHtml(order) : buildItemsHtml(order, showItemAmounts)}
     </section>
 
-    ${isKitchen ? '' : `<div class="customer-totals-box">${buildTotalsHtml(order, currency)}</div>`}
+    ${afterItemsBlock}
 
-    ${isKitchen ? '' : buildPaymentHtml(order, currency)}
+    ${isKitchen || !template.showTotals ? '' : `<div class="customer-totals-box">${buildTotalsHtml(order, currency, template)}</div>`}
+
+    ${isKitchen || !template.showPayment ? '' : buildPaymentHtml(order, currency, template)}
+
+    ${afterPaymentBlock}
 
     ${
-      !isKitchen && order.notes
+      !isKitchen && template.showOrderNotes && order.notes
         ? `<div class="rule"></div>
            <section>
-             <div class="section-heading">Notes</div>
+             ${labels.notesHeading ? `<div class="section-heading">${escapeHtml(labels.notesHeading)}</div>` : ''}
              <div class="notes-block">${escapeHtml(order.notes)}</div>
            </section>`
         : ''
     }
+
+    ${beforeFooterBlock}
 
     ${isKitchen ? '' : customerFooter}
   </div>

@@ -379,6 +379,14 @@ export interface OrderPayment {
   createdAt: string;
 }
 
+export interface PickupDisplayTicket {
+  id: string;
+  displayNumber: string;
+  status: 'PREPARING' | 'READY';
+  orderType: string;
+  updatedAt: string;
+}
+
 export interface Order {
   id: string;
   status: string;

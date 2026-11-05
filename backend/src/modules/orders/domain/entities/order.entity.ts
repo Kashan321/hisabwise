@@ -194,7 +194,14 @@ export interface CreateOrderInput {
   deliveryNotes?: string;
   taxRate?: number;
   serviceRate?: number;
+  /** Client-generated UUID; duplicate submissions return the same order per business. */
+  idempotencyKey?: string;
   items: CreateOrderItemInput[];
+}
+
+export interface CreateOrderResult {
+  order: OrderEntity;
+  idempotentReplay: boolean;
 }
 
 export interface AddOrderItemsInput {

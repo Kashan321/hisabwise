@@ -666,6 +666,7 @@ model Order {
   deliveryNotes       String?         @map("delivery_notes")
   ticketNumber        Int?            @map("ticket_number")
   ticketPrefix        String?         @map("ticket_prefix")
+  idempotencyKey      String?         @map("idempotency_key") @db.Uuid
   inventoryDeductedAt DateTime?       @map("inventory_deducted_at")
   inventoryReversedAt DateTime?       @map("inventory_reversed_at")
   createdAt           DateTime        @default(now()) @map("created_at")
@@ -697,6 +698,7 @@ model Order {
   @@index([businessId, isDraft])
   @@index([businessId, businessDayId])
   @@unique([businessDayId, ticketNumber])
+  @@unique([businessId, idempotencyKey])
   @@map("orders")
 }
 

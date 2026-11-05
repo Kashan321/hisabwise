@@ -3,8 +3,9 @@ import { prisma } from '../../shared/database/prisma-client';
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   mergeReceiptTemplate,
-  parseReceiptTemplate,
+  normalizeReceiptTemplateInput,
   parseReceiptTemplateOverride,
+  readReceiptTemplateConfig,
   receiptTemplateSchema,
   type ReceiptTemplate,
   type ReceiptTemplateOverride,
@@ -29,14 +30,14 @@ export async function ensureDefaultReceiptTemplateRow() {
 
 export async function getPlatformReceiptTemplate(): Promise<ReceiptTemplate> {
   const row = await ensureDefaultReceiptTemplateRow();
-  return mergeReceiptTemplate(parseReceiptTemplate(row.config), null);
+  return readReceiptTemplateConfig(row.config);
 }
 
 export async function updatePlatformReceiptTemplate(
   template: ReceiptTemplate,
 ): Promise<ReceiptTemplate> {
   const row = await ensureDefaultReceiptTemplateRow();
-  const parsed = receiptTemplateSchema.parse(template);
+  const parsed = receiptTemplateSchema.parse(normalizeReceiptTemplateInput(template));
   await prisma.receiptTemplate.update({
     where: { id: row.id },
     data: { config: parsed },

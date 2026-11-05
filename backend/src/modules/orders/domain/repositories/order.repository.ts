@@ -24,7 +24,8 @@ export interface OrderRepository {
     businessId: string,
     input: CreateOrderInput,
     pricing: import('../entities/order.entity').OrderPricingResult,
-  ): Promise<OrderEntity>;
+  ): Promise<import('../entities/order.entity').CreateOrderResult>;
+  findByIdempotencyKey(businessId: string, idempotencyKey: string): Promise<OrderEntity | null>;
   findAll(businessId: string, filters?: ListOrdersFilters): Promise<ListOrdersResult>;
   findById(businessId: string, orderId: string, options?: { includeChangeRequests?: boolean }): Promise<OrderEntity | null>;
   updateStatus(

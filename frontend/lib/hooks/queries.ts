@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api/client';
+import { DEFAULT_RECEIPT_TEMPLATE, mergeReceiptTemplate } from '@/lib/receipt/receipt-template';
 import { useAuth, useTenantQueryEnabled } from '@/lib/auth/auth-context';
 import { isBusinessOwner } from '@/lib/auth/permissions';
 import {
@@ -531,7 +532,7 @@ export function usePlatformReceiptTemplate() {
     queryFn: () =>
       apiFetch<{ template: import('@/lib/api/types').ReceiptTemplate }>('/platform/receipts', {
         auth: 'platform',
-      }).then((d) => d.template),
+      }).then((d) => mergeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE, d.template)),
   });
 }
 
@@ -554,7 +555,7 @@ export function useReceiptTemplate() {
     queryFn: () =>
       apiFetch<{ template: import('@/lib/api/types').ReceiptTemplate }>(
         '/business/me/receipt-template',
-      ).then((d) => d.template),
+      ).then((d) => mergeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE, d.template)),
     enabled: tenantReady,
     staleTime: 5 * 60 * 1000,
   });
@@ -575,6 +576,25 @@ export function usePlatformPaymentSubmissions(filters?: {
         `/platform/billing/payments${q}`,
         { auth: 'platform' },
       ).then((d) => d.submissions),
+  });
+}
+
+const PICKUP_DISPLAY_POLL_MS = 5_000;
+
+export function usePublicPickupDisplay(slug: string) {
+  return useQuery({
+    queryKey: ['public', 'pickup-display', slug],
+    queryFn: () =>
+      apiFetch<{
+        business: Pick<
+          Business,
+          'name' | 'slug' | 'logoUrl' | 'primaryColor' | 'secondaryColor' | 'backgroundColor' | 'textColor'
+        >;
+        tickets: import('@/lib/api/types').PickupDisplayTicket[];
+      }>(`/public/${slug}/pickup-display`, { auth: 'none' }),
+    enabled: !!slug,
+    refetchInterval: PICKUP_DISPLAY_POLL_MS,
+    staleTime: PICKUP_DISPLAY_POLL_MS,
   });
 }
 

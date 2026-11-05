@@ -5,6 +5,7 @@ export function welcomeOnboardingEmail(params: {
   ownerName: string;
   businessName: string;
   dashboardUrl: string;
+  publicSiteUrl: string;
   slug: string;
 }) {
   const subject = `Welcome to ${APP_NAME} — ${params.businessName} is ready`;
@@ -21,7 +22,7 @@ export function welcomeOnboardingEmail(params: {
       <li>Invite staff and assign roles</li>
       <li>Open a business day and start taking orders</li>
     </ol>
-    <p style="margin:16px 0 0;font-size:14px;color:#5c6f68">Your restaurant link: <strong>/${params.slug}</strong></p>
+    <p style="margin:16px 0 0;font-size:14px;color:#5c6f68">Your restaurant link:<br /><strong>${params.publicSiteUrl}</strong></p>
     ${emailButton(params.dashboardUrl, 'Open dashboard')}
     <p style="margin:8px 0 0;font-size:13px;color:#5c6f68;text-align:center">
       Need help? Reply to this email or contact our support team.

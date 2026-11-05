@@ -760,6 +760,7 @@ export function useCreateOrder() {
       deliveryAddress?: string;
       deliveryNotes?: string;
       isDraft?: boolean;
+      idempotencyKey?: string;
       items: {
         menuItemId: string;
         quantity: number;
@@ -767,7 +768,7 @@ export function useCreateOrder() {
         modifierOptionIds?: string[];
       }[];
     }) =>
-      apiFetch<{ order: Order }>('/orders', {
+      apiFetch<{ order: Order; idempotentReplay?: boolean }>('/orders', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -1161,6 +1162,7 @@ export function useCreatePublicOrder(slug: string) {
   return useMutation({
     mutationFn: (body: {
       tableId?: string;
+      idempotencyKey?: string;
       items: {
         menuItemId: string;
         quantity: number;
@@ -1170,7 +1172,7 @@ export function useCreatePublicOrder(slug: string) {
       }[];
       notes?: string;
     }) =>
-      apiFetch<{ order: Order }>(`/public/${slug}/orders`, {
+      apiFetch<{ order: Order; idempotentReplay?: boolean }>(`/public/${slug}/orders`, {
         method: 'POST',
         auth: 'none',
         body: JSON.stringify(body),
