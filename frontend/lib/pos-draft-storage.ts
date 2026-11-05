@@ -1,4 +1,5 @@
 import type { CartLine } from '@/lib/cart-line';
+import { EMPTY_ORDER_TAKER, type OrderTakerSelection } from '@/lib/order-taker';
 import { cartLineKey } from '@/lib/cart-line';
 import { STORAGE_KEY_PREFIX } from '@/lib/config';
 
@@ -20,6 +21,9 @@ export interface PosDraft {
   taxRateCustomized?: boolean;
   serviceRatePercent: string;
   orderNotes: string;
+  orderTaker?: OrderTakerSelection;
+  /** @deprecated use orderTaker */
+  orderTakerId?: string;
   updatedAt: number;
 }
 
@@ -71,6 +75,14 @@ export function loadPosDraft(slug: string, waiterMode?: boolean): PosDraft | nul
       taxRateCustomized: parsed.taxRateCustomized === true,
       serviceRatePercent: parsed.serviceRatePercent ?? '',
       orderNotes: parsed.orderNotes ?? '',
+      orderTaker: parsed.orderTaker
+        ? {
+            staffId: parsed.orderTaker.staffId ?? '',
+            customName: parsed.orderTaker.customName ?? '',
+          }
+        : parsed.orderTakerId
+          ? { staffId: parsed.orderTakerId, customName: '' }
+          : EMPTY_ORDER_TAKER,
       updatedAt: parsed.updatedAt ?? Date.now(),
     };
   } catch {

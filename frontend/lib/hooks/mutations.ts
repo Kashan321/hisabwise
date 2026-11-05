@@ -761,6 +761,8 @@ export function useCreateOrder() {
       deliveryNotes?: string;
       isDraft?: boolean;
       idempotencyKey?: string;
+      waiterId?: string | null;
+      waiterName?: string | null;
       items: {
         menuItemId: string;
         quantity: number;
@@ -778,6 +780,31 @@ export function useCreateOrder() {
       reconcileInBackground(qc, ['kitchen', 'queue']);
       reconcileInBackground(qc, ['waiter']);
       reconcileInBackground(qc, ['delivery']);
+    },
+  });
+}
+
+export function useTransferOrderWaiter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      waiterId,
+      waiterName,
+    }: {
+      orderId: string;
+      waiterId: string | null;
+      waiterName?: string | null;
+    }) =>
+      apiFetch<{ order: Order }>(`/orders/${orderId}/transfer-waiter`, {
+        method: 'POST',
+        body: JSON.stringify({ waiterId, waiterName }),
+      }),
+    onSuccess: (data) => {
+      replaceOrderInCache(qc, data.order);
+      reconcileInBackground(qc, ['orders']);
+      reconcileInBackground(qc, ['kitchen', 'queue']);
+      reconcileInBackground(qc, ['waiter']);
     },
   });
 }

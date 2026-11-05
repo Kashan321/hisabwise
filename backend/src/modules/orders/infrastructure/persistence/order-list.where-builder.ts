@@ -23,6 +23,8 @@ function appendOrderSearchFilter(
   const or: Prisma.OrderWhereInput[] = [
     { customerName: { contains: query, mode: 'insensitive' } },
     { customerPhone: { contains: query, mode: 'insensitive' } },
+    { customWaiterName: { contains: query, mode: 'insensitive' } },
+    { waiter: { name: { contains: query, mode: 'insensitive' } } },
     { ticketPrefix: { contains: query, mode: 'insensitive' } },
     { notes: { contains: query, mode: 'insensitive' } },
   ];

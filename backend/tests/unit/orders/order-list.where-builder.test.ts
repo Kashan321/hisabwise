@@ -34,4 +34,20 @@ describe('buildOrderListWhere', () => {
       cashShiftId: shiftId,
     });
   });
+
+  it('search includes order taker staff and custom names', () => {
+    const where = buildOrderListWhere(businessId, { search: 'Sara' });
+
+    expect(where).toMatchObject({
+      AND: [
+        { businessId, isDraft: false },
+        {
+          OR: expect.arrayContaining([
+            { customWaiterName: { contains: 'Sara', mode: 'insensitive' } },
+            { waiter: { name: { contains: 'Sara', mode: 'insensitive' } } },
+          ]),
+        },
+      ],
+    });
+  });
 });

@@ -197,21 +197,52 @@ export function ShiftCloseModal({
     if (accountOptions[0]) setDestinationAccountId(accountOptions[0].value);
   }, [closingSettlement, accountOptions]);
 
-  useEffect(() => {
-    if (!actualCash) return;
-    setTransferredCash((prev) => prev || actualCash);
-  }, [actualCash]);
+  const countEntered = actualCash.trim() !== '';
+  const countedAmount = countEntered ? Number(actualCash) : NaN;
+  const countIsValid = countEntered && Number.isFinite(countedAmount) && countedAmount >= 0;
+
+  function applyExpectedAsCount() {
+    if (expectedCash == null || summaryLoading) return;
+    setActualCash(String(Number(expectedCash)));
+    setError('');
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
+    if (!countEntered) {
+      setError('Please write how much cash you counted in the drawer.');
+      return;
+    }
+    if (!countIsValid) {
+      setError('Please write a correct cash amount.');
+      return;
+    }
+
+    const needsTransferDetails = closingSettlement !== 'KEEP_IN_DRAWER';
+    let transferred = countedAmount;
+    if (needsTransferDetails) {
+      const parsed = Number(transferredCash);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setError('Write how much cash you are taking out of the drawer.');
+        return;
+      }
+      transferred = parsed;
+    }
+
+    if (!destinationAccountId) {
+      setError('Please pick where the cash is going.');
+      return;
+    }
+
     try {
       const closed = await closeShift.mutateAsync({
         shiftId: shift.id,
-        actualCash: Number(actualCash) || 0,
+        actualCash: countedAmount,
         notes: closeNotes.trim() || undefined,
         closingSettlement,
-        transferredCash: Number(transferredCash) || 0,
+        transferredCash: transferred,
         destinationAccountId: destinationAccountId || null,
       });
       setClosedShift(closed);
@@ -283,9 +314,8 @@ export function ShiftCloseModal({
     );
   }
 
-  const countedAmount = Number(actualCash) || 0;
   const variancePreview =
-    expectedCash != null && actualCash
+    expectedCash != null && countIsValid
       ? formatVariance(countedAmount - Number(expectedCash), formatMoney)
       : null;
 
@@ -294,102 +324,196 @@ export function ShiftCloseModal({
       open={open}
       onClose={onClose}
       title="Close shift"
-      description="Compare the expected cash with your count, then complete the closing settlement."
+      description="Count all cash in the drawer. Write the total below, then tap Close shift."
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={closeShift.isPending} onClick={handleSubmit}>
-            Close shift
+          <Button
+            variant="primary"
+            type="submit"
+            form="close-shift-form"
+            loading={closeShift.isPending}
+            disabled={!countIsValid || accountsLoading || accountOptions.length === 0}
+          >
+            {countIsValid ? 'Close shift' : 'Add cash amount first'}
           </Button>
         </>
       }
     >
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="font-caption text-on-surface-variant font-bold block">
-              Expected cash in drawer
-            </label>
-            <div
-              className="flex h-11 items-center px-4 rounded-lg border border-outline-variant/30 bg-surface-container-low font-mono text-primary tabular-nums"
-              aria-live="polite"
-            >
-              {summaryLoading ? 'Calculating…' : expectedCash != null ? formatMoney(expectedCash) : '—'}
+      <form id="close-shift-form" className="space-y-4" onSubmit={handleSubmit}>
+        <section className="rounded-xl border border-primary/20 bg-primary/5 p-3.5 sm:p-4 space-y-3.5">
+          <div className="flex items-start gap-2.5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary text-xs font-bold">
+              1
+            </span>
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <p className="font-body-emphasis text-primary">Count cash in the drawer</p>
+              <p className="font-caption text-on-surface-variant">
+                Count notes and coins in the till. Write the real amount on the right.
+              </p>
             </div>
-            <p className="font-caption text-on-surface-variant">
-              What the system expects based on sales and movements.
-            </p>
           </div>
 
-          <Input
-            label="Actual cash counted"
-            type="number"
-            min={0}
-            step="0.01"
-            value={actualCash}
-            onChange={(e) => setActualCash(e.target.value)}
-            required
-            autoFocus
-          />
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="font-caption font-bold text-on-surface-variant block">
+                Cash system expects
+              </label>
+              <div
+                className="flex h-11 items-center px-3 rounded-lg border border-outline-variant/30 bg-surface font-mono text-base font-semibold text-primary tabular-nums"
+                aria-live="polite"
+              >
+                {summaryLoading ? 'Calculating…' : expectedCash != null ? formatMoney(expectedCash) : '—'}
+              </div>
+              <p className="font-caption text-on-surface-variant">From today&apos;s sales and cash in/out</p>
+            </div>
 
-        {variancePreview && (
-          <p className="flex justify-center sm:justify-start">
-            <span
-              className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${variancePreview.className}`}
+            <div className="space-y-1.5">
+              <Input
+                label="Cash you counted (required)"
+                type="number"
+                min={0}
+                step="0.01"
+                value={actualCash}
+                onChange={(e) => {
+                  setActualCash(e.target.value);
+                  setError('');
+                }}
+                placeholder="Write amount here"
+                autoFocus
+                className="border-primary/35 font-mono font-semibold text-primary"
+              />
+              {expectedCash != null && !summaryLoading && (
+                <button
+                  type="button"
+                  onClick={applyExpectedAsCount}
+                  className="font-caption font-semibold text-primary hover:underline cursor-pointer text-left"
+                >
+                  Same as expected: {formatMoney(expectedCash)}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {variancePreview && (
+            <p className="flex justify-center sm:justify-start">
+              <span
+                className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${variancePreview.className}`}
+              >
+                {variancePreview.label}
+              </span>
+            </p>
+          )}
+
+          {!countEntered && (
+            <div
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+              role="alert"
             >
-              {variancePreview.label}
-            </span>
-          </p>
+              <p className="font-semibold text-on-surface mb-0.5">Write cash amount before you close</p>
+              <p className="font-caption leading-relaxed">
+                <strong>Do not tap Close shift</strong> until the counted cash box is filled. If empty, the
+                system saves <strong className="text-red-700">{formatMoney(0)}</strong> and your{' '}
+                <strong>cash report will be wrong</strong>.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {countIsValid && (
+          <section className="space-y-3">
+            <div className="flex items-start gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface text-xs font-bold border border-outline-variant/30">
+                2
+              </span>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="font-body-emphasis text-on-surface">What to do with this cash?</p>
+                <p className="font-caption text-on-surface-variant">
+                  Usually cash <strong>stays in the drawer</strong>. Change only if you take cash out.
+                </p>
+              </div>
+            </div>
+
+            <SelectField
+              label="Cash after closing"
+              value={closingSettlement}
+              onChange={(e) => {
+                const next = e.target.value as CashClosingSettlement;
+                setClosingSettlement(next);
+                if (next !== 'KEEP_IN_DRAWER') {
+                  setTransferredCash((prev) => prev || actualCash);
+                }
+              }}
+              options={CLOSING_SETTLEMENT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            />
+
+            {closingSettlement === 'KEEP_IN_DRAWER' ? (
+              <p className="font-caption text-on-surface rounded-lg bg-surface-container-low px-3 py-2">
+                <strong>{formatMoney(countedAmount)}</strong> stays in the drawer for the next shift.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Cash taken out of drawer"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={transferredCash}
+                  onChange={(e) => setTransferredCash(e.target.value)}
+                  placeholder={actualCash}
+                />
+
+                <div className="space-y-1.5">
+                  <SelectField
+                    label="Send cash to"
+                    value={destinationAccountId}
+                    onChange={(e) => setDestinationAccountId(e.target.value)}
+                    options={accountOptions}
+                    disabled={accountsLoading || accountOptions.length === 0}
+                  />
+                  {accountsLoading && (
+                    <p className="font-caption text-on-surface-variant">Loading destination accounts…</p>
+                  )}
+                  {!accountsLoading && accountOptions.length === 0 && (
+                    <p className="font-caption text-error">
+                      No destination accounts found. Refresh the page and try again.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {closingSettlement === 'KEEP_IN_DRAWER' && (
+              <div className="sr-only">
+                <SelectField
+                  label="Destination account"
+                  value={destinationAccountId}
+                  onChange={(e) => setDestinationAccountId(e.target.value)}
+                  options={accountOptions}
+                  disabled={accountsLoading || accountOptions.length === 0}
+                />
+              </div>
+            )}
+
+            <Input
+              label="Note (optional)"
+              value={closeNotes}
+              onChange={(e) => setCloseNotes(e.target.value)}
+              placeholder={
+                variancePreview && variancePreview.label !== 'Balanced'
+                  ? 'Why is counted cash different from expected?'
+                  : 'Any note for this closing'
+              }
+            />
+          </section>
         )}
 
-        <SelectField
-          label="Final closing cash settlement"
-          value={closingSettlement}
-          onChange={(e) => setClosingSettlement(e.target.value as CashClosingSettlement)}
-          options={CLOSING_SETTLEMENT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-        />
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
-            label="How much cash is transferred"
-            type="number"
-            min={0}
-            step="0.01"
-            value={transferredCash}
-            onChange={(e) => setTransferredCash(e.target.value)}
-            required
-          />
-
-          <div className="space-y-1.5">
-            <SelectField
-              label="Destination account"
-              value={destinationAccountId}
-              onChange={(e) => setDestinationAccountId(e.target.value)}
-              options={accountOptions}
-              required
-              disabled={accountsLoading || accountOptions.length === 0}
-            />
-            {accountsLoading && (
-              <p className="font-caption text-on-surface-variant">Loading destination accounts…</p>
-            )}
-            {!accountsLoading && accountOptions.length === 0 && (
-              <p className="font-caption text-error">
-                No destination accounts found. Refresh the page and try again.
-              </p>
-            )}
-          </div>
-        </div>
-
-        <Input
-          label="Notes (optional)"
-          value={closeNotes}
-          onChange={(e) => setCloseNotes(e.target.value)}
-          placeholder="Explain any variance or settlement details"
-        />
-
-        {error && <p className="font-caption text-error">{error}</p>}
+        {error && (
+          <p className="font-caption font-semibold text-error" role="alert">
+            {error}
+          </p>
+        )}
       </form>
     </Modal>
   );

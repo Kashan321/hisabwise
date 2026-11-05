@@ -639,6 +639,7 @@ model Order {
   promotionId     String?         @map("promotion_id") @db.Uuid
   createdById     String?         @map("created_by_id") @db.Uuid
   waiterId        String?         @map("waiter_id") @db.Uuid
+  customWaiterName String?        @map("custom_waiter_name") @db.VarChar(120)
   riderId         String?         @map("rider_id") @db.Uuid
   source          OrderSource
   orderType       OrderType       @default(DINE_IN) @map("order_type")

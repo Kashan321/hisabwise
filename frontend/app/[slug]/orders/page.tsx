@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
+import { useDebouncedValue } from '@/lib/hooks/use-debounced-value';
 import { BusinessLayout } from '@/components/layouts/business-layout';
 import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
 import { OrderDetailDrawer } from '@/components/orders/order-detail-drawer';
@@ -267,6 +268,13 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const [appliedFilters, setAppliedFilters] = useState<FilterDraft>(() =>
     createDefaultFilters(),
   );
+  const debouncedSearch = useDebouncedValue(draftFilters.search, 350);
+
+  useEffect(() => {
+    setAppliedFilters((prev) =>
+      prev.search === debouncedSearch ? prev : { ...prev, search: debouncedSearch },
+    );
+  }, [debouncedSearch]);
 
   useEffect(() => {
     if (!currentBusinessDay?.businessDate) return;
@@ -648,20 +656,11 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') applyFilters();
                 }}
-                placeholder="Search orders…"
+                placeholder="Ticket, customer, order taker…"
                 className="w-full bg-transparent border-0 outline-none text-sm lg:text-base text-on-surface placeholder:text-on-surface-variant/70"
                 aria-label="Search orders"
               />
             </div>
-            <button
-              type="button"
-              onClick={applyFilters}
-              disabled={isFetching}
-              className="lg:hidden h-9 px-3 shrink-0 bg-primary text-on-primary font-body-emphasis rounded-lg active:scale-[0.98] cursor-pointer disabled:opacity-60"
-              aria-label="Apply search"
-            >
-              <Icon name="search" />
-            </button>
           </div>
 
           <div className="flex gap-2 mt-2 lg:hidden">
@@ -1102,6 +1101,9 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
             ? posAddItemsHref(slug, displayDetailOrder)
             : undefined
         }
+        onOrderUpdated={(updated) => {
+          setDetailOrder(updated);
+        }}
       />
 
       <CompleteOrderPaymentModal

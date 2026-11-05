@@ -29,7 +29,11 @@ export type DomainEventMap = {
     deliveryStatus: string;
   };
   'order.rider_assigned': { orderId: string; businessId: string; riderId: string };
-  'order.waiter_transferred': { orderId: string; businessId: string; waiterId: string };
+  'order.waiter_transferred': {
+    orderId: string;
+    businessId: string;
+    waiterId?: string | null;
+  };
   'order.table_transferred': {
     orderId: string;
     businessId: string;

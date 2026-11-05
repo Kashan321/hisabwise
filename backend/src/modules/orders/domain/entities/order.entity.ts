@@ -185,7 +185,9 @@ export interface CreateOrderInput {
   discountType?: 'PERCENTAGE' | 'FIXED';
   discountValue?: number;
   createdById?: string;
-  waiterId?: string;
+  waiterId?: string | null;
+  /** Free-text order taker when waiterId is not set (temporary). */
+  waiterName?: string | null;
   isDraft?: boolean;
   notes?: string;
   customerName?: string;

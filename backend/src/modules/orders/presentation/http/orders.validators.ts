@@ -45,9 +45,23 @@ export const createOrderSchema = z
     taxRate: z.number().min(0).max(1).optional(),
     serviceRate: z.number().min(0).max(1).optional(),
     idempotencyKey: z.string().uuid().optional(),
+    /** Staff member who took the order (optional; waiters are assigned automatically). */
+    waiterId: z.union([z.string().uuid(), z.null()]).optional(),
+    /** Free-text order taker when not a staff user (temporary). */
+    waiterName: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
     items: z.array(orderItemSchema).min(1),
   })
   .superRefine((data, ctx) => {
+    const hasWaiterId = data.waiterId != null && data.waiterId !== '';
+    const hasWaiterName =
+      data.waiterName != null && data.waiterName !== '' && String(data.waiterName).trim().length > 0;
+    if (hasWaiterId && hasWaiterName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Use either waiterId or waiterName, not both',
+        path: ['waiterId'],
+      });
+    }
     if (data.discountType && (data.discountValue == null || data.discountValue <= 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -211,9 +225,23 @@ export const updateDeliveryStatusSchema = z
     }
   });
 
-export const transferWaiterSchema = z.object({
-  waiterId: z.string().uuid(),
-});
+export const transferWaiterSchema = z
+  .object({
+    waiterId: z.union([z.string().uuid(), z.null()]).optional(),
+    waiterName: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasWaiterId = data.waiterId != null && data.waiterId !== '';
+    const hasWaiterName =
+      data.waiterName != null && data.waiterName !== '' && String(data.waiterName).trim().length > 0;
+    if (hasWaiterId && hasWaiterName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Use either waiterId or waiterName, not both',
+        path: ['waiterId'],
+      });
+    }
+  });
 
 export const transferOrderTableSchema = z.object({
   targetTableId: z.string().uuid(),

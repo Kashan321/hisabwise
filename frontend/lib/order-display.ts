@@ -36,20 +36,29 @@ export function formatOrderShortLabel(
   return full.length > 14 ? `#${full.slice(-4)}` : full;
 }
 
-/** Staff member who created / took the order (POS, waiter, counter). */
+/** Staff member assigned as the order taker (who served the customer). */
 export function orderTakerName(
-  order: Pick<Order, 'createdByName' | 'waiterName'>,
+  order: Pick<Order, 'waiterName'>,
 ): string | null {
-  return order.createdByName ?? order.waiterName ?? null;
+  const name = order.waiterName?.trim();
+  return name || null;
 }
 
-/** Kitchen / receipt label for who placed or serves the order. */
+/** Kitchen / receipt label for the assigned order taker. */
 export function orderTakerReceiptLabel(
+  order: Pick<Order, 'waiterName'>,
+): { label: 'Order taker'; name: string } | null {
+  const name = order.waiterName?.trim();
+  if (!name) return null;
+  return { label: 'Order taker', name };
+}
+
+/** Who entered the order in POS (may differ from order taker). */
+export function orderPunchedByName(
   order: Pick<Order, 'createdByName' | 'waiterName'>,
-): { label: 'Waiter' | 'Order taker'; name: string } | null {
-  const waiter = order.waiterName?.trim();
-  if (waiter) return { label: 'Waiter', name: waiter };
-  const taker = order.createdByName?.trim();
-  if (taker) return { label: 'Order taker', name: taker };
-  return null;
+): string | null {
+  const punched = order.createdByName?.trim();
+  if (!punched) return null;
+  if (punched === order.waiterName?.trim()) return null;
+  return punched;
 }

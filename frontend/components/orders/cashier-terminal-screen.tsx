@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/api/client';
 import { Icon } from '@/components/ui';
 import { CashierTerminalPaymentModal } from '@/components/orders/cashier-terminal-payment-modal';
 import { CustomerSearchField } from '@/components/orders/customer-search-field';
+import { OrderTakerSelectField } from '@/components/orders/order-taker-select-field';
 import { ItemCustomizationModal } from '@/components/orders/item-customization-modal';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { APP_NAME } from '@/lib/config';
@@ -39,6 +40,7 @@ import {
   useOrder,
   useOrders,
   usePromotions,
+  useStaff,
 } from '@/lib/hooks/queries';
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value';
 import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-currency';
@@ -46,6 +48,12 @@ import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import { formatOrderLabel } from '@/lib/order-display';
 import { isMenuItemCustomerSellable } from '@/lib/menu-item-sellability';
 import { canAddItemsToOpenTab } from '@/lib/open-tab-order';
+import {
+  canAssignOrderTaker,
+  createOrderWaiterFields,
+  EMPTY_ORDER_TAKER,
+  type OrderTakerSelection,
+} from '@/lib/order-taker';
 import {
   businessDeliveryCharge,
   DEFAULT_SERVICE_RATE_PERCENT,
@@ -160,6 +168,8 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const { data: selectedOrder } = useOrder(selectedOrderId ?? '');
+  const { data: staff = [], isLoading: staffLoading } = useStaff();
+  const showOrderTakerField = canAssignOrderTaker(user) && !selectedOrderId;
 
   const [orderMode, setOrderMode] = useState<OrderMode>('DINE_IN');
   const [tableId, setTableId] = useState('');
@@ -176,6 +186,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
   const [taxRateCustomized, setTaxRateCustomized] = useState(false);
   const [serviceRatePercent, setServiceRatePercent] = useState(String(DEFAULT_SERVICE_RATE_PERCENT));
   const [orderNotes, setOrderNotes] = useState('');
+  const [orderTaker, setOrderTaker] = useState<OrderTakerSelection>(EMPTY_ORDER_TAKER);
 
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORY_ID);
@@ -369,6 +380,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
     setDiscountType('');
     setDiscountValue('');
     setOrderNotes('');
+    setOrderTaker(EMPTY_ORDER_TAKER);
     setTaxRatePercent('');
     setTaxRateCustomized(false);
     setServiceRatePercent(String(DEFAULT_SERVICE_RATE_PERCENT));
@@ -445,6 +457,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
       deliveryAddress: deliveryAddress.trim() || undefined,
       deliveryNotes: deliveryNotes.trim() || undefined,
       isDraft: asDraft,
+      ...(showOrderTakerField ? createOrderWaiterFields(orderTaker) : {}),
       items,
     };
   }
@@ -909,6 +922,15 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
                 Change
               </button>
             </div>
+            {showOrderTakerField && (
+              <OrderTakerSelectField
+                compact
+                staff={staff}
+                value={orderTaker}
+                loading={staffLoading}
+                onChange={setOrderTaker}
+              />
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-2.5 min-h-0">

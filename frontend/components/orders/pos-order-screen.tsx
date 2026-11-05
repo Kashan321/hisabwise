@@ -19,6 +19,7 @@ import { apiFetch } from '@/lib/api/client';
 import { Button, Icon, Input, SelectField, Textarea } from '@/components/ui';
 import { ConfirmDialog, Drawer } from '@/components/ui/modal';
 import { CustomerSearchField } from '@/components/orders/customer-search-field';
+import { OrderTakerSelectField } from '@/components/orders/order-taker-select-field';
 import { HeldOrdersDrawer } from '@/components/orders/held-orders-drawer';
 import { OrderTypeBadge } from '@/components/orders/order-badges';
 import { PosLiveOrdersStripe } from '@/components/orders/pos-live-orders-stripe';
@@ -73,7 +74,15 @@ import {
   usePromotions,
   useBusiness,
   useReceiptTemplate,
+  useStaff,
 } from '@/lib/hooks/queries';
+import { useAuth } from '@/lib/auth/auth-context';
+import {
+  canAssignOrderTaker,
+  createOrderWaiterFields,
+  EMPTY_ORDER_TAKER,
+  type OrderTakerSelection,
+} from '@/lib/order-taker';
 import { orderToCartRecord } from '@/lib/order-cart';
 import { formatOrderLabel } from '@/lib/order-display';
 import {
@@ -882,6 +891,8 @@ export function PosOrderScreen({
   const { data: customers = [] } = useCustomers();
   const { data: promotions = [] } = usePromotions(true);
   const { data: business } = useBusiness();
+  const { user } = useAuth();
+  const { data: staff = [], isLoading: staffLoading } = useStaff();
   const themeStyle = useMemo(() => themeToStyle(business), [business]);
   const configuredTaxPercent = businessTaxRatePercentLabel(business);
   const tableMap = useMemo(
@@ -914,6 +925,8 @@ export function PosOrderScreen({
 
   const existingOrderId = searchParams.get('orderId');
   const heldOrderId = searchParams.get('heldOrderId');
+  const showOrderTakerField =
+    !waiterMode && canAssignOrderTaker(user) && !existingOrderId && !heldOrderId;
   const { data: existingOrder } = useOrder(existingOrderId ?? '');
   const { data: heldOrder } = useOrder(heldOrderId ?? '');
   const { data: heldOrdersData } = useHeldOrders();
@@ -942,6 +955,7 @@ export function PosOrderScreen({
   const [taxRateCustomized, setTaxRateCustomized] = useState(false);
   const [serviceRatePercent, setServiceRatePercent] = useState(String(DEFAULT_SERVICE_RATE_PERCENT));
   const [orderNotes, setOrderNotes] = useState('');
+  const [orderTaker, setOrderTaker] = useState<OrderTakerSelection>(EMPTY_ORDER_TAKER);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [customizationItem, setCustomizationItem] = useState<MenuItem | null>(null);
   const [weightItem, setWeightItem] = useState<MenuItem | null>(null);
@@ -996,6 +1010,7 @@ export function PosOrderScreen({
       }
       if (draft.serviceRatePercent) setServiceRatePercent(draft.serviceRatePercent);
       setOrderNotes(draft.orderNotes);
+      setOrderTaker(draft.orderTaker ?? EMPTY_ORDER_TAKER);
     }
     setDraftHydrated(true);
   }, [slug, waiterMode, existingOrderId, heldOrderId]);
@@ -1042,6 +1057,7 @@ export function PosOrderScreen({
         taxRateCustomized,
         serviceRatePercent,
         orderNotes,
+        orderTaker,
       },
       waiterMode,
     );
@@ -1065,6 +1081,7 @@ export function PosOrderScreen({
     taxRateCustomized,
     serviceRatePercent,
     orderNotes,
+    orderTaker,
   ]);
 
   useEffect(() => {
@@ -1758,6 +1775,7 @@ export function PosOrderScreen({
       deliveryAddress: deliveryAddress.trim() || undefined,
       deliveryNotes: deliveryNotes.trim() || undefined,
       isDraft: asDraft,
+      ...(showOrderTakerField ? createOrderWaiterFields(orderTaker) : {}),
       items,
     };
   }
@@ -1814,6 +1832,7 @@ export function PosOrderScreen({
       setDiscountType('');
       setDiscountValue('');
       setOrderNotes('');
+      setOrderTaker(EMPTY_ORDER_TAKER);
       setTaxRatePercent('');
       setTaxRateCustomized(false);
       setServiceRatePercent(String(DEFAULT_SERVICE_RATE_PERCENT));
@@ -2451,6 +2470,17 @@ export function PosOrderScreen({
       </div>
     ) : null;
 
+  const orderTakerStrip =
+    showOrderTakerField ? (
+      <OrderTakerSelectField
+        compact
+        staff={staff}
+        value={orderTaker}
+        loading={staffLoading}
+        onChange={setOrderTaker}
+      />
+    ) : null;
+
   const primaryCheckoutLabel = existingOrderId
     ? isHeldDraftOrder
       ? 'Place order'
@@ -2546,6 +2576,7 @@ export function PosOrderScreen({
           showTotal
         />
       )}
+      {orderTakerStrip}
       <div className="flex gap-2 w-full items-stretch">
         {waiterMode && !existingOrderId ? (
           <>
@@ -2996,7 +3027,8 @@ export function PosOrderScreen({
                     />
                   )}
                 </div>
-                <div className="shrink-0 px-2 pb-1 overflow-visible">
+                <div className="shrink-0 px-2 pb-1 overflow-visible space-y-1.5">
+                  {orderTakerStrip}
                   {orderExtrasAccordion}
                   {existingOrderId && pricingLocked && (
                     <p className="font-caption text-error px-1 pt-1">
@@ -3077,6 +3109,7 @@ export function PosOrderScreen({
           ) : null}
           {!existingOrderId && orderMode !== 'DINE_IN' ? orderContextFields : null}
           {cartItemsList}
+          {orderTakerStrip}
           {orderExtrasAccordion}
         </div>
       </Drawer>

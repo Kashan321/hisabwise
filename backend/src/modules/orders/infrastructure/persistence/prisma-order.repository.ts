@@ -9,6 +9,7 @@ import {
   formatOrderTicketLabel,
   resolveOrderShiftContext,
 } from '../../application/services/order-ticket.service';
+import { resolveWaiterAssignment } from '../../domain/waiter-assignment';
 import {
   CreateOrderChangeRequestInput,
   CreateOrderInput,
@@ -252,6 +253,7 @@ function mapOrder(order: {
   promotionId: string | null;
   createdById: string | null;
   waiterId: string | null;
+  customWaiterName: string | null;
   riderId: string | null;
   source: 'QR_CUSTOMER' | 'STAFF_ASSISTED' | 'ONLINE_DELIVERY';
   orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'QR';
@@ -301,7 +303,7 @@ function mapOrder(order: {
     createdById: order.createdById,
     createdByName: order.createdBy?.name ?? null,
     waiterId: order.waiterId,
-    waiterName: order.waiter?.name ?? null,
+    waiterName: order.waiter?.name ?? order.customWaiterName ?? null,
     riderId: order.riderId,
     riderName: order.rider?.name ?? null,
     source: order.source,
@@ -532,6 +534,18 @@ export class PrismaOrderRepository implements OrderRepository {
 
     const isDraft = input.isDraft ?? false;
 
+    const waiterAssignment = resolveWaiterAssignment(
+      {
+        waiterId: input.waiterId,
+        waiterName: input.waiterName,
+      },
+      { defaultStaffId: input.createdById },
+    );
+
+    if (waiterAssignment.waiterId) {
+      await assertStaffMember(businessId, waiterAssignment.waiterId);
+    }
+
     try {
       const order = await getRawPrismaClient().$transaction(async (tx) => {
       const ticketData = isDraft ? null : await allocateOrderTicketNumber(tx, businessId);
@@ -547,7 +561,8 @@ export class PrismaOrderRepository implements OrderRepository {
           customerId: resolvedCustomerId,
           promotionId: pricing.promotionId,
           createdById: input.createdById,
-          waiterId: input.waiterId,
+          waiterId: waiterAssignment.waiterId,
+          customWaiterName: waiterAssignment.customWaiterName,
           source: input.source,
           orderType: input.orderType ?? 'DINE_IN',
           isDraft,
@@ -597,7 +612,7 @@ export class PrismaOrderRepository implements OrderRepository {
         await tx.floorTable.update({
           where: { id: input.tableId },
           data: {
-            ...(input.waiterId ? { assignedWaiterId: input.waiterId } : {}),
+            ...(waiterAssignment.waiterId ? { assignedWaiterId: waiterAssignment.waiterId } : {}),
             ...(!isDraft ? { status: PrismaTableStatus.OCCUPIED } : {}),
           },
         });
@@ -1037,15 +1052,26 @@ export class PrismaOrderRepository implements OrderRepository {
     return mapOrderResolved(order);
   }
 
-  async transferWaiter(businessId: string, orderId: string, waiterId: string): Promise<OrderEntity> {
+  async transferWaiter(
+    businessId: string,
+    orderId: string,
+    assignment: { waiterId?: string | null; waiterName?: string | null },
+  ): Promise<OrderEntity> {
     const existing = await prisma.order.findFirst({ where: { id: orderId, businessId } });
     if (!existing) throw new OrderNotFoundError();
 
-    await assertStaffMember(businessId, waiterId);
+    const resolved = resolveWaiterAssignment(assignment);
+
+    if (resolved.waiterId) {
+      await assertStaffMember(businessId, resolved.waiterId);
+    }
 
     const order = await prisma.order.update({
       where: { id: orderId },
-      data: { waiterId },
+      data: {
+        waiterId: resolved.waiterId,
+        customWaiterName: resolved.customWaiterName,
+      },
       include: orderInclude,
     });
 

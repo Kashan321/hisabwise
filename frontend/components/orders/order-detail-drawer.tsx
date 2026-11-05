@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import {
   OrderSourceBadge,
   OrderStatusBadge,
@@ -14,7 +15,21 @@ import type { Order } from '@/lib/api/types';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { useFormatMoney } from '@/lib/hooks/use-business-currency';
 import { useBusiness } from '@/lib/hooks/queries';
-import { formatOrderLabel, orderTakerName } from '@/lib/order-display';
+import { OrderTakerSelectField } from '@/components/orders/order-taker-select-field';
+import { formatApiError } from '@/lib/api/errors';
+import { formatOrderLabel, orderPunchedByName, orderTakerName } from '@/lib/order-display';
+import {
+  canAssignOrderTaker,
+  EMPTY_ORDER_TAKER,
+  orderTakerFromOrder,
+  ORDER_TAKER_OTHER_VALUE,
+  transferWaiterRequestBody,
+  type OrderTakerSelection,
+} from '@/lib/order-taker';
+import { useAuth } from '@/lib/auth/auth-context';
+import { useTransferOrderWaiter } from '@/lib/hooks/mutations';
+import { useStaff } from '@/lib/hooks/queries';
+import { useToast } from '@/lib/toast';
 import { themeToStyle } from '@/lib/theme/theme-css';
 
 function OrderItemRow({
@@ -77,6 +92,7 @@ export function OrderDetailDrawer({
   onPreview,
   printing,
   addItemsHref,
+  onOrderUpdated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -86,12 +102,58 @@ export function OrderDetailDrawer({
   onPreview?: () => void;
   printing?: boolean;
   addItemsHref?: string;
+  onOrderUpdated?: (order: Order) => void;
 }) {
   const formatMoney = useFormatMoney();
   const { data: business } = useBusiness();
   const themeStyle = themeToStyle(business);
+  const { user } = useAuth();
+  const { data: staff = [], isLoading: staffLoading } = useStaff();
+  const transferWaiter = useTransferOrderWaiter();
+  const toast = useToast();
+  const canEditTaker = canAssignOrderTaker(user);
+  const [orderTaker, setOrderTaker] = useState<OrderTakerSelection>(EMPTY_ORDER_TAKER);
+
+  useEffect(() => {
+    if (!order) return;
+    setOrderTaker(orderTakerFromOrder(order));
+  }, [order?.id, order?.waiterId, order?.waiterName]);
 
   if (!order) return null;
+  const orderId = order.id;
+
+  async function persistOrderTaker(next: OrderTakerSelection) {
+    const previous = orderTaker;
+    setOrderTaker(next);
+    try {
+      const body = transferWaiterRequestBody(next);
+      const data = await transferWaiter.mutateAsync({
+        orderId,
+        ...body,
+      });
+      onOrderUpdated?.(data.order);
+      toast.success(body.waiterId || body.waiterName ? 'Order taker updated' : 'Order taker removed');
+    } catch (err) {
+      setOrderTaker(previous);
+      toast.error(formatApiError(err));
+    }
+  }
+
+  function handleOrderTakerChange(next: OrderTakerSelection) {
+    setOrderTaker(next);
+    const persistNow =
+      (next.staffId && next.staffId !== ORDER_TAKER_OTHER_VALUE) ||
+      (!next.staffId && !next.customName.trim());
+    if (persistNow) {
+      void persistOrderTaker(next);
+    }
+  }
+
+  function handleCustomOrderTakerCommit(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    void persistOrderTaker({ staffId: ORDER_TAKER_OTHER_VALUE, customName: trimmed });
+  }
 
   return (
     <Drawer
@@ -151,6 +213,17 @@ export function OrderDetailDrawer({
           )}
         </div>
 
+        {canEditTaker && (
+          <OrderTakerSelectField
+            staff={staff}
+            value={orderTaker}
+            loading={staffLoading || transferWaiter.isPending}
+            disabled={transferWaiter.isPending}
+            onChange={handleOrderTakerChange}
+            onCustomNameCommit={handleCustomOrderTakerCommit}
+          />
+        )}
+
         <dl className="grid grid-cols-2 gap-4">
           <div>
             <dt className="font-caption text-on-surface-variant uppercase">Service</dt>
@@ -186,10 +259,16 @@ export function OrderDetailDrawer({
               <dd className="font-body-emphasis mt-1">{order.promotionTitle}</dd>
             </div>
           )}
-          {orderTakerName(order) && (
+          {!canEditTaker && orderTakerName(order) && (
             <div>
-              <dt className="font-caption text-on-surface-variant uppercase">Taken by</dt>
+              <dt className="font-caption text-on-surface-variant uppercase">Order taker</dt>
               <dd className="font-body-emphasis mt-1">{orderTakerName(order)}</dd>
+            </div>
+          )}
+          {orderPunchedByName(order) && (
+            <div>
+              <dt className="font-caption text-on-surface-variant uppercase">Punched by</dt>
+              <dd className="font-body-emphasis mt-1">{orderPunchedByName(order)}</dd>
             </div>
           )}
           {order.preparedByName && (

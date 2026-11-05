@@ -50,10 +50,26 @@ export class OrdersController {
       !permissions.includes('*') &&
       !permissions.includes('orders.manage');
 
+    const bodyWaiterId = req.body.waiterId;
+    const optionalWaiterId =
+      bodyWaiterId === null || bodyWaiterId === ''
+        ? null
+        : typeof bodyWaiterId === 'string'
+          ? bodyWaiterId
+          : undefined;
+
+    const bodyWaiterName =
+      req.body.waiterName === null || req.body.waiterName === ''
+        ? null
+        : typeof req.body.waiterName === 'string'
+          ? req.body.waiterName
+          : undefined;
+
     const input: CreateOrderInput = {
       ...req.body,
       createdById: req.tenantContext!.userId,
-      waiterId: isWaiter ? req.tenantContext!.userId : req.body.waiterId,
+      waiterId: isWaiter ? req.tenantContext!.userId : optionalWaiterId,
+      waiterName: isWaiter ? undefined : bodyWaiterName,
       isDraft: req.body.isDraft ?? isWaiter,
     };
 
@@ -157,7 +173,10 @@ export class OrdersController {
     const order = await ordersModule.transferOrderWaiter.execute(
       req.tenantContext!.businessId,
       String(req.params.id),
-      req.body.waiterId,
+      {
+        waiterId: req.body.waiterId,
+        waiterName: req.body.waiterName,
+      },
       actorFromRequest(req),
     );
     return success(res, { order });

@@ -304,20 +304,31 @@ export class TransferOrderWaiterUseCase {
   async execute(
     businessId: string,
     orderId: string,
-    waiterId: string,
+    assignment: { waiterId?: string | null; waiterName?: string | null },
     actor: { userId: string; userName?: string },
   ) {
-    const order = await this.orderRepository.transferWaiter(businessId, orderId, waiterId);
+    const order = await this.orderRepository.transferWaiter(businessId, orderId, assignment);
 
-    emitDomainEvent('order.waiter_transferred', { orderId, businessId, waiterId });
+    const hasStaff = Boolean(order.waiterId);
+    const hasCustom = Boolean(order.waiterName?.trim());
+
+    emitDomainEvent('order.waiter_transferred', {
+      orderId,
+      businessId,
+      waiterId: order.waiterId,
+    });
 
     await tenantAuditService.log({
       businessId,
       userId: actor.userId,
-      action: 'order.waiter_transferred',
+      action: hasStaff || hasCustom ? 'order.waiter_transferred' : 'order.waiter_cleared',
       targetType: 'order',
       targetId: orderId,
-      metadata: { waiterId, userName: actor.userName },
+      metadata: {
+        waiterId: order.waiterId,
+        waiterName: order.waiterName,
+        userName: actor.userName,
+      },
     });
 
     return order;
