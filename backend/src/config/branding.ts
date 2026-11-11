@@ -12,7 +12,7 @@ export const BRANDING = {
   platform: 'Hisab Wise Platform',
   defaultDatabase: 'venta',
   defaultTestDatabase: 'venta-test',
-  defaultBrandColor: '#62B4A7',
+  defaultBrandColor: '#212121',
   /** Primary accent for transactional HTML emails (header, buttons, OTP). */
   emailPrimaryColor: '#009444',
 } as const;
