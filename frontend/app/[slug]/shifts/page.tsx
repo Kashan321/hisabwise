@@ -324,7 +324,7 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
                 key={shift.id}
                 className="rounded-2xl border border-primary/20 bg-surface-container-lowest overflow-hidden card-hairline"
               >
-                <div className="h-1 bg-gradient-to-r from-primary to-[#3d8a7e]" />
+                <div className="h-1 bg-gradient-to-r from-primary to-[var(--primary-gradient-end)]" />
                 <div className="p-5 space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>

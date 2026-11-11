@@ -10,7 +10,7 @@ export const BRANDING = {
   tagline: 'Restaurant operations, POS, and real-time reporting in one place',
   platformAdmin: 'Hisab Wise Admin',
   platform: 'Hisab Wise Platform',
-  defaultBrandColor: '#62B4A7',
+  defaultBrandColor: '#212121',
 } as const;
 
 export const APP_NAME = BRANDING.name;

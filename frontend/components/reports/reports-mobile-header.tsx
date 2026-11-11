@@ -16,7 +16,7 @@ export function ReportsMobileHeader({
     <div className="md:hidden mb-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-primary to-[#3d8a7e] text-on-primary flex items-center justify-center shadow-md shadow-primary/20">
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-primary to-[var(--primary-gradient-end)] text-on-primary flex items-center justify-center shadow-md shadow-primary/20">
             <Icon name="analytics" className="text-lg" />
           </div>
           <div className="min-w-0">

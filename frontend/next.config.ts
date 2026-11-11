@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import withSerwistInit from '@serwist/next';
 
 /**
  * When the browser calls same-origin `/api/v1/*`, forward to the Express API.
@@ -8,6 +9,12 @@ const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:4000')
   /\/$/,
   '',
 );
+
+const withSerwist = withSerwistInit({
+  swSrc: 'app/sw.ts',
+  swDest: 'public/sw.js',
+  disable: process.env.NODE_ENV === 'development',
+});
 
 const nextConfig: NextConfig = {
   async rewrites() {
@@ -24,4 +31,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

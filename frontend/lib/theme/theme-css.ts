@@ -5,9 +5,9 @@ export const DEFAULT_BRAND_COLOR = BRANDING.defaultBrandColor;
 
 export const DEFAULT_BUSINESS_THEME = {
   primaryColor: DEFAULT_BRAND_COLOR,
-  secondaryColor: '#4A9A8E',
-  backgroundColor: '#F9F9F8',
-  textColor: '#1A1C1C',
+  secondaryColor: '#3B4554',
+  backgroundColor: '#FFFFFF',
+  textColor: '#111827',
 } as const;
 
 export type ThemeColors = {
@@ -95,8 +95,11 @@ export function themeToStyle(colors?: ThemeColors | null): CSSProperties {
   const background = theme.backgroundColor;
   const text = theme.textColor;
 
+  const primaryGradientEnd = mix(primary, secondary, 0.45);
+
   return {
     '--primary': primary,
+    '--primary-gradient-end': primaryGradientEnd,
     '--on-primary': onColor(primary),
     '--primary-container': mix(primary, '#FFFFFF', 0.85),
     '--on-primary-container': mix(primary, '#000000', 0.55),

@@ -6,6 +6,7 @@ import { AuthProvider } from '@/lib/auth/auth-context';
 import { PlatformAuthProvider } from '@/lib/auth/platform-auth-context';
 import { TenantRealtimeProvider } from '@/components/providers/tenant-realtime-provider';
 import { ToastProvider } from '@/lib/toast';
+import { SerwistProvider } from '@/components/serwist-provider';
 import { REFERENCE_GC_MS } from '@/lib/query-cache';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -33,7 +34,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <TenantRealtimeProvider>
           <PlatformAuthProvider>
-            <ToastProvider>{children}</ToastProvider>
+            <ToastProvider>
+              <SerwistProvider>{children}</SerwistProvider>
+            </ToastProvider>
           </PlatformAuthProvider>
         </TenantRealtimeProvider>
       </AuthProvider>

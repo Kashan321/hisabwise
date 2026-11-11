@@ -32,6 +32,10 @@ import {
   resetCheckoutIdempotencyKey,
 } from '@/lib/order-checkout-idempotency';
 import { useNetworkStatus } from '@/lib/hooks/use-network-status';
+import { useOfflinePos } from '@/components/offline/offline-pos-provider';
+import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
+import { enqueueOfflineCheckout } from '@/lib/offline/pos-checkout';
+import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import {
@@ -911,6 +915,17 @@ export function PosOrderScreen({
 
   const createOrder = useCreateOrder();
   const network = useNetworkStatus();
+  const offlinePos = useOfflinePos();
+  const [offlineCheckoutOpen, setOfflineCheckoutOpen] = useState(false);
+  const [offlineCheckoutItems, setOfflineCheckoutItems] = useState<
+    Array<{
+      menuItemId: string;
+      quantity: number;
+      variantId?: string;
+      weightG?: number;
+      modifierOptionIds?: string[];
+    }> | null
+  >(null);
   const checkoutInFlightRef = useRef(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
@@ -1918,8 +1933,107 @@ export function PosOrderScreen({
     }
   }
 
+  function buildSnapshotLineUnitPrices(items: ReturnType<typeof buildCartItems>) {
+    const snapshot: Record<string, string> = {};
+    for (const line of items) {
+      const item = itemById[line.menuItemId];
+      if (!item) continue;
+      const unit = lineUnitPrice(
+        item,
+        line.modifierOptionIds ?? [],
+        line.variantId,
+        line.weightG,
+      );
+      snapshot[line.menuItemId] = String(unit);
+    }
+    return snapshot;
+  }
+
+  function buildReceiptItemsFromCart(items: ReturnType<typeof buildCartItems>) {
+    return items.map((line, index) => {
+      const item = itemById[line.menuItemId];
+      const unit = item
+        ? lineUnitPrice(item, line.modifierOptionIds ?? [], line.variantId, line.weightG)
+        : 0;
+      const lineTotal = unit * line.quantity;
+      return {
+        id: `offline-${index}`,
+        menuItemId: line.menuItemId,
+        menuItemName: item?.name ?? 'Item',
+        quantity: line.quantity,
+        unitPrice: String(unit),
+        lineTotal: String(lineTotal),
+        variantId: line.variantId ?? null,
+        variantName: null,
+        weightG: line.weightG ?? null,
+        modifiers: [],
+      };
+    });
+  }
+
+  async function confirmOfflineCashCheckout(payload: CompleteOrderPaymentPayload) {
+    if (!offlinePos.scopeKey || !offlineCheckoutItems?.length) return;
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
+    setCheckoutBusy(true);
+    setCheckoutMessage('Saving offline order on this device…');
+    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
+    try {
+      const createPayload = buildCreateOrderPayload(offlineCheckoutItems, false);
+      const { receiptOrder } = await enqueueOfflineCheckout({
+        scopeKey: offlinePos.scopeKey,
+        idempotencyKey,
+        createPayload,
+        pricing: {
+          subtotal: pricing.subtotal,
+          taxAmount: pricing.taxAmount,
+          serviceAmount: pricing.serviceAmount,
+          totalAmount: pricing.totalAmount,
+        },
+        orderType: orderMode,
+        payment: payload,
+        receiptItems: buildReceiptItemsFromCart(offlineCheckoutItems),
+        snapshotLineUnitPrices: buildSnapshotLineUnitPrices(offlineCheckoutItems),
+        notes: 'OFFLINE — pending sync',
+      });
+      resetCheckoutIdempotencyKey(slug);
+      setOfflineCheckoutOpen(false);
+      setOfflineCheckoutItems(null);
+      toast.success(`Offline order ${receiptOrder.ticketLabel} saved — will sync when online`);
+      printPunchedBill({
+        ...receiptOrder,
+        notes: 'OFFLINE — pending sync',
+      });
+      clearOrder();
+    } catch (err) {
+      toast.error(formatApiError(err) || 'Could not save offline order.');
+    } finally {
+      checkoutInFlightRef.current = false;
+      setCheckoutBusy(false);
+      setCheckoutMessage(null);
+    }
+  }
+
   async function submitNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
     if (checkoutInFlightRef.current) return;
+
+    if (offlinePos.isOfflineMode) {
+      if (asDraft || waiterMode) {
+        toast.error('Held or waiter draft orders are not available offline.');
+        return;
+      }
+      if (orderMode === 'DELIVERY') {
+        toast.error('Delivery orders require an internet connection.');
+        return;
+      }
+      if (!offlinePos.scopeKey) {
+        toast.error('Offline data is not ready. Load POS once while online.');
+        return;
+      }
+      setOfflineCheckoutItems(items);
+      setOfflineCheckoutOpen(true);
+      return;
+    }
 
     if (!network.online) {
       toast.error('Internet connection lost. Your checkout status is being checked.');
@@ -3114,6 +3228,26 @@ export function PosOrderScreen({
         </div>
       </Drawer>
       {PrintBillPrompt}
+
+      <CompleteOrderPaymentModal
+        open={offlineCheckoutOpen}
+        onClose={() => {
+          if (checkoutBusy) return;
+          setOfflineCheckoutOpen(false);
+          setOfflineCheckoutItems(null);
+        }}
+        orderLabel="Offline cash sale"
+        totalAmount={pricing.totalAmount}
+        loading={checkoutBusy}
+        cashOnly
+        onConfirm={(payload) => {
+          if (payload.paymentMethod && payload.paymentMethod !== 'CASH') {
+            toast.error('Only cash payments are available offline.');
+            return;
+          }
+          void confirmOfflineCashCheckout(payload);
+        }}
+      />
 
       <ConfirmDialog
         open={!!pendingBusyTableId}

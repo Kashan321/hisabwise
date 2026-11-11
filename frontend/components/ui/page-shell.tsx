@@ -19,7 +19,7 @@ export function PageHeader({
       <div className="flex gap-4 min-w-0 flex-1">
         {icon && (
           <div
-            className="w-12 h-12 shrink-0 rounded-2xl bg-gradient-to-br from-primary to-[#3d8a7e] text-on-primary flex items-center justify-center shadow-lg shadow-primary/25"
+            className="w-12 h-12 shrink-0 rounded-2xl bg-gradient-to-br from-primary to-[var(--primary-gradient-end)] text-on-primary flex items-center justify-center shadow-lg shadow-primary/25"
           >
             <Icon name={icon} className="text-2xl" />
           </div>

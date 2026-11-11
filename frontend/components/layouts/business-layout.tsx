@@ -38,6 +38,11 @@ import { NewBillButton } from '@/components/layouts/new-bill-button';
 import { ReportsButton } from '@/components/layouts/reports-button';
 import { UserProfileMenu } from '@/components/layouts/user-profile-menu';
 import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
+import { OfflinePosProvider } from '@/components/offline/offline-pos-provider';
+import { OfflinePosBanner } from '@/components/offline/offline-pos-banner';
+import { countPendingOfflineOrders, clearOfflineDataForScope } from '@/lib/offline/sync';
+import { offlineScopeKey } from '@/lib/offline/db';
+import { useToast } from '@/lib/toast';
 
 const HEADER_LINKS = [
   { label: 'Analytics', href: 'reports', permissions: ['reports.view'] },
@@ -157,6 +162,7 @@ export function BusinessLayout({
   const canManageShift = hasAnyPermission(user, ['cash.shift', 'orders.manage', '*']);
   const canManageBusinessDay = hasAnyPermission(user, ['business.manage', 'orders.manage', '*']);
   const { data: currentShift } = useCurrentCashShift({ enabled: canManageShift });
+  const toast = useToast();
   useAutoDetectCurrency();
   usePrefetchTenantShell(
     isReady && isAuthenticated && user?.businessSlug === slug,
@@ -247,6 +253,7 @@ export function BusinessLayout({
         }`;
 
   return (
+    <OfflinePosProvider slug={slug}>
     <div
       className="bg-surface text-on-surface min-h-screen min-h-[100dvh] font-body-base antialiased app-shell-bg"
       style={themeStyle}
@@ -452,6 +459,7 @@ export function BusinessLayout({
                 <div className="px-0 mb-3 md:mb-4 space-y-3 shrink-0">
                   <BusinessDayLifecycleMonitor />
                   <BusinessDayNoticeBanner slug={slug} />
+                  <OfflinePosBanner />
                   <SubscriptionNoticeBanner slug={slug} subscription={subscription} />
                 </div>
               )}
@@ -461,6 +469,7 @@ export function BusinessLayout({
             <div className="mt-10 md:mt-18 flex flex-col gap-4 md:gap-5">
               <BusinessDayLifecycleMonitor />
               <BusinessDayNoticeBanner slug={slug} />
+              <OfflinePosBanner />
               <SubscriptionNoticeBanner slug={slug} subscription={subscription} />
               <TenantPageFrame>{children}</TenantPageFrame>
             </div>
@@ -516,6 +525,18 @@ export function BusinessLayout({
         open={logoutConfirmOpen}
         onClose={() => setLogoutConfirmOpen(false)}
         onConfirm={async () => {
+          if (user?.businessId && user?.id) {
+            const scopeKey = offlineScopeKey(user.businessId, user.id);
+            const pending = await countPendingOfflineOrders(scopeKey);
+            if (pending > 0) {
+              toast.error(
+                `${pending} offline order${pending === 1 ? '' : 's'} still need to sync. Reconnect and sync before logging out.`,
+              );
+              setLogoutConfirmOpen(false);
+              return;
+            }
+            await clearOfflineDataForScope(scopeKey);
+          }
           await logout();
           router.push('/login');
         }}
@@ -529,5 +550,6 @@ export function BusinessLayout({
         destructive
       />
     </div>
+    </OfflinePosProvider>
   );
 }
