@@ -78,5 +78,8 @@ export async function enqueueOfflineCheckout(input: OfflineCheckoutInput) {
   };
 
   await queueOfflineOrder(record);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('hisabwise:offline-queue-changed'));
+  }
   return { receiptOrder, offlineTicketLabel };
 }

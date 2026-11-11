@@ -46,9 +46,21 @@ export async function ensurePosDeviceRegistered(scopeKey: string) {
   return record;
 }
 
+async function getOrCreateLocalDevice(scopeKey: string) {
+  const existing = await offlineDb.devices.get(scopeKey);
+  if (existing) return existing;
+  const record = {
+    scopeKey,
+    deviceKey: getOrCreateDeviceKey(),
+    ticketPrefix: 'A',
+    nextOfflineTicketNumber: 1,
+  };
+  await offlineDb.devices.put(record);
+  return record;
+}
+
 export async function allocateOfflineTicket(scopeKey: string) {
-  const device = await offlineDb.devices.get(scopeKey);
-  if (!device) throw new Error('POS device is not registered for offline mode');
+  const device = await getOrCreateLocalDevice(scopeKey);
   const offlineTicketNumber = device.nextOfflineTicketNumber;
   const offlineTicketLabel = `${device.ticketPrefix}-${String(offlineTicketNumber).padStart(3, '0')}`;
   await offlineDb.devices.put({

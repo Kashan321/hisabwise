@@ -36,6 +36,8 @@ import { useOfflinePos } from '@/components/offline/offline-pos-provider';
 import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
 import { enqueueOfflineCheckout } from '@/lib/offline/pos-checkout';
 import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
+import { isPosEffectivelyOffline, offlineCheckoutBannerMessage } from '@/lib/offline/effective-offline';
+import { readOfflineSnapshot } from '@/lib/offline/snapshot';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import {
@@ -2014,43 +2016,39 @@ export function PosOrderScreen({
     }
   }
 
+  async function beginOfflineCashCheckout(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
+    if (asDraft || waiterMode) {
+      toast.error('Held or waiter draft orders are not available offline.');
+      return;
+    }
+    if (orderMode === 'DELIVERY') {
+      toast.error('Delivery orders require an internet connection.');
+      return;
+    }
+    if (!offlinePos.scopeKey) {
+      toast.error('Offline data is not ready. Load POS once while online.');
+      return;
+    }
+    const snapshot = await readOfflineSnapshot(offlinePos.scopeKey);
+    if (!snapshot?.menu?.length) {
+      toast.error('Menu not cached yet. Open New Order once while online, then try again.');
+      return;
+    }
+    setOfflineCheckoutItems(items);
+    setOfflineCheckoutOpen(true);
+  }
+
   async function submitNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
     if (checkoutInFlightRef.current) return;
 
-    if (offlinePos.isOfflineMode) {
-      if (asDraft || waiterMode) {
-        toast.error('Held or waiter draft orders are not available offline.');
-        return;
-      }
-      if (orderMode === 'DELIVERY') {
-        toast.error('Delivery orders require an internet connection.');
-        return;
-      }
-      if (!offlinePos.scopeKey) {
-        toast.error('Offline data is not ready. Load POS once while online.');
-        return;
-      }
-      setOfflineCheckoutItems(items);
-      setOfflineCheckoutOpen(true);
-      return;
-    }
+    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    const effectivelyOffline = isPosEffectivelyOffline({
+      apiReachability: offlinePos.apiReachability,
+      browserOnline: browserOnline && network.online,
+    });
 
-    if (!network.online) {
-      toast.error('Internet connection lost. Your checkout status is being checked.');
-      const pending = readPendingCheckout(slug);
-      if (pending) {
-        try {
-          const data = await apiFetch<{ order: Order | null }>(
-            `/orders/idempotency/${pending.idempotencyKey}`,
-          );
-          if (data.order) {
-            await processNewOrderSuccess({ order: data.order, idempotentReplay: true }, asDraft);
-            return;
-          }
-        } catch {
-          /* fall through */
-        }
-      }
+    if (effectivelyOffline) {
+      await beginOfflineCashCheckout(items, asDraft);
       return;
     }
 
@@ -2065,6 +2063,20 @@ export function PosOrderScreen({
       });
       await processNewOrderSuccess(data, asDraft);
     } catch (err) {
+      const mayRetryOffline = offlinePos.scopeKey && !waiterMode && !asDraft && orderMode !== 'DELIVERY';
+      if (mayRetryOffline) {
+        const snapshot = await readOfflineSnapshot(offlinePos.scopeKey!);
+        if (snapshot?.menu?.length) {
+          toast.error('Connection lost — save this sale offline with cash.');
+          setOfflineCheckoutItems(items);
+          setOfflineCheckoutOpen(true);
+          return;
+        }
+      }
+      if (!browserOnline || !network.online) {
+        await beginOfflineCashCheckout(items, asDraft);
+        return;
+      }
       toast.error(formatApiError(err) || 'Unable to confirm order. Please retry safely.');
     } finally {
       checkoutInFlightRef.current = false;
@@ -2637,19 +2649,23 @@ export function PosOrderScreen({
     </Button>
   );
 
+  const posEffectivelyOffline = isPosEffectivelyOffline({
+    apiReachability: offlinePos.apiReachability,
+    browserOnline: network.online,
+  });
+  const offlineBanner = offlineCheckoutBannerMessage(posEffectivelyOffline, offlinePos.pendingCount);
+
   const checkoutFooter = (
     <div className="w-full space-y-2">
-      {(!network.online || checkoutMessage) && (
+      {(offlineBanner || checkoutMessage) && (
         <div
           className={`rounded-lg px-3 py-2 text-xs font-medium ${
-            !network.online
-              ? 'bg-error-container/40 text-on-error-container'
+            offlineBanner
+              ? 'bg-secondary-container text-on-secondary-container'
               : 'bg-tertiary-container/50 text-on-surface'
           }`}
         >
-          {!network.online
-            ? 'Internet connection lost. Your checkout status is being checked.'
-            : checkoutMessage}
+          {offlineBanner ?? checkoutMessage}
         </div>
       )}
       {existingOrderId && existingOrder && (

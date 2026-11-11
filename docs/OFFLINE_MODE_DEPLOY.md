@@ -29,6 +29,8 @@ Migration: `20261111120000_pos_offline_devices`
 1. Build frontend (`npm run build` in `frontend/`).
 2. Service worker is emitted to `public/sw.js` (disabled in `next dev`; enabled in production build).
 3. After deploy, tenants should **hard-refresh once** (or revisit POS) so the service worker installs.
+4. Serwist is configured with `cacheOnNavigation: true` — tenants must open **New Order while online** once so RSC/HTML responses are cached before going offline.
+5. The service worker uses **NetworkOnly** for `/api/*` so cached `/health` cannot fake an online state while offline.
 4. No new env vars are required if `NEXT_PUBLIC_API_URL` already points at `/api/v1`.
 
 ## Tenant guidance

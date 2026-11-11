@@ -30,13 +30,16 @@ function withSerwistWhenProduction(config: NextConfig): NextConfig {
   }
   // Defer loading @serwist/next so `next dev` (Turbopack) never sees a webpack plugin.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const withSerwistInit = require('@serwist/next').default as (options: {
-    swSrc: string;
-    swDest: string;
-  }) => (config: NextConfig) => NextConfig;
+  const withSerwistInit = require('@serwist/next').default as (
+    options: Record<string, unknown>,
+  ) => (config: NextConfig) => NextConfig;
   return withSerwistInit({
     swSrc: 'app/sw.ts',
     swDest: 'public/sw.js',
+    cacheOnNavigation: true,
+    register: true,
+    reloadOnOnline: true,
+    additionalPrecacheEntries: [{ url: '/offline', revision: '20261111' }],
   })(config);
 }
 

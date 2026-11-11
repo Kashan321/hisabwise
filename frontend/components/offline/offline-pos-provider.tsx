@@ -32,6 +32,7 @@ import {
   listPendingOfflineOrders,
 } from '@/lib/offline/sync';
 import type { PendingOfflineOrderRecord } from '@/lib/offline/db';
+import { isPosEffectivelyOffline } from '@/lib/offline/effective-offline';
 
 interface OfflinePosContextValue {
   apiReachability: ApiReachability;
@@ -49,6 +50,9 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   const { user, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [apiReachability, setApiReachability] = useState<ApiReachability>(getApiReachability());
+  const [browserOffline, setBrowserOffline] = useState(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOrders, setPendingOrders] = useState<PendingOfflineOrderRecord[]>([]);
 
@@ -98,6 +102,17 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   }, []);
 
   useEffect(() => {
+    const onBrowserOffline = () => setBrowserOffline(!navigator.onLine);
+    window.addEventListener('online', onBrowserOffline);
+    window.addEventListener('offline', onBrowserOffline);
+    onBrowserOffline();
+    return () => {
+      window.removeEventListener('online', onBrowserOffline);
+      window.removeEventListener('offline', onBrowserOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated || !scopeKey) return;
     void requestOfflineStoragePersistence();
     void refreshPending();
@@ -127,7 +142,12 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
     const interval = setInterval(() => {
       void refreshPending();
     }, 5_000);
-    return () => clearInterval(interval);
+    const onQueueChange = () => void refreshPending();
+    window.addEventListener('hisabwise:offline-queue-changed', onQueueChange);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('hisabwise:offline-queue-changed', onQueueChange);
+    };
   }, [isAuthenticated, refreshPending, scopeKey]);
 
   useEffect(() => {
@@ -138,14 +158,14 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   const value = useMemo<OfflinePosContextValue>(
     () => ({
       apiReachability,
-      isOfflineMode: apiReachability === 'offline',
+      isOfflineMode: isPosEffectivelyOffline({ apiReachability, browserOnline: !browserOffline }),
       pendingCount,
       pendingOrders,
       refreshSnapshot,
       syncNow,
       scopeKey,
     }),
-    [apiReachability, pendingCount, pendingOrders, refreshSnapshot, scopeKey, syncNow],
+    [apiReachability, browserOffline, pendingCount, pendingOrders, refreshSnapshot, scopeKey, syncNow],
   );
 
   return <OfflinePosContext.Provider value={value}>{children}</OfflinePosContext.Provider>;

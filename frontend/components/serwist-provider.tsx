@@ -6,6 +6,7 @@ export function SerwistProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') return;
     if (!('serviceWorker' in navigator)) return;
+    if (typeof window !== 'undefined' && 'serwist' in window) return;
     void navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
   }, []);
 

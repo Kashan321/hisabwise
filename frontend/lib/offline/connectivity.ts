@@ -5,7 +5,8 @@ const HEARTBEAT_TIMEOUT_MS = 4_000;
 
 export type ApiReachability = 'online' | 'offline' | 'checking';
 
-let reachability: ApiReachability = 'checking';
+let reachability: ApiReachability =
+  typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'checking';
 let listeners = new Set<(value: ApiReachability) => void>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
