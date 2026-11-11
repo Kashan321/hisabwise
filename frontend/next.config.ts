@@ -1,5 +1,4 @@
 import type { NextConfig } from 'next';
-import withSerwistInit from '@serwist/next';
 
 /**
  * When the browser calls same-origin `/api/v1/*`, forward to the Express API.
@@ -9,12 +8,6 @@ const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:4000')
   /\/$/,
   '',
 );
-
-const withSerwist = withSerwistInit({
-  swSrc: 'app/sw.ts',
-  swDest: 'public/sw.js',
-  disable: process.env.NODE_ENV === 'development',
-});
 
 const nextConfig: NextConfig = {
   async rewrites() {
@@ -31,4 +24,20 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSerwist(nextConfig);
+function withSerwistWhenProduction(config: NextConfig): NextConfig {
+  if (process.env.NODE_ENV !== 'production') {
+    return config;
+  }
+  // Defer loading @serwist/next so `next dev` (Turbopack) never sees a webpack plugin.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const withSerwistInit = require('@serwist/next').default as (options: {
+    swSrc: string;
+    swDest: string;
+  }) => (config: NextConfig) => NextConfig;
+  return withSerwistInit({
+    swSrc: 'app/sw.ts',
+    swDest: 'public/sw.js',
+  })(config);
+}
+
+export default withSerwistWhenProduction(nextConfig);
