@@ -6,7 +6,22 @@ export function isPosEffectivelyOffline(input: {
   browserOnline: boolean;
 }): boolean {
   if (!input.browserOnline) return true;
-  if (input.apiReachability === 'offline') return true;
+  // Do not block checkout while heartbeat is still "checking" — treat as offline until API is proven up.
+  if (input.apiReachability !== 'online') return true;
+  return false;
+}
+
+export function isNetworkFailureError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('network') ||
+      msg.includes('load failed') ||
+      msg.includes('networkerror')
+    );
+  }
   return false;
 }
 

@@ -39,6 +39,8 @@ import { ReportsButton } from '@/components/layouts/reports-button';
 import { UserProfileMenu } from '@/components/layouts/user-profile-menu';
 import { TenantPromoAlertOverlay } from '@/components/tenant/tenant-promo-alert-overlay';
 import { OfflinePosProvider } from '@/components/offline/offline-pos-provider';
+import { isBrowserOffline } from '@/lib/offline/session';
+import { getTenantToken } from '@/lib/api/auth-session';
 import { OfflinePosBanner } from '@/components/offline/offline-pos-banner';
 import { countPendingOfflineOrders, clearOfflineDataForScope } from '@/lib/offline/sync';
 import { offlineScopeKey } from '@/lib/offline/db';
@@ -187,6 +189,7 @@ export function BusinessLayout({
 
   useEffect(() => {
     if (isReady && !isAuthenticated) {
+      if (isBrowserOffline() && getTenantToken()) return;
       router.replace('/login');
       return;
     }

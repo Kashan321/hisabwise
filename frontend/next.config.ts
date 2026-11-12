@@ -38,8 +38,11 @@ function withSerwistWhenProduction(config: NextConfig): NextConfig {
     swDest: 'public/sw.js',
     cacheOnNavigation: true,
     register: true,
-    reloadOnOnline: true,
-    additionalPrecacheEntries: [{ url: '/offline', revision: '20261111' }],
+    reloadOnOnline: false,
+    additionalPrecacheEntries: [
+      { url: '/offline', revision: '20261112' },
+      { url: '/offline-pos', revision: '20261112' },
+    ],
   })(config);
 }
 

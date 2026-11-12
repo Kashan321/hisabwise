@@ -33,6 +33,9 @@ import {
 } from '@/lib/offline/sync';
 import type { PendingOfflineOrderRecord } from '@/lib/offline/db';
 import { isPosEffectivelyOffline } from '@/lib/offline/effective-offline';
+import { rememberLastPosUrl } from '@/lib/offline/pos-shell-storage';
+import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
+import { usePathname } from 'next/navigation';
 
 interface OfflinePosContextValue {
   apiReachability: ApiReachability;
@@ -47,6 +50,7 @@ interface OfflinePosContextValue {
 const OfflinePosContext = createContext<OfflinePosContextValue | null>(null);
 
 export function OfflinePosProvider({ children, slug }: { children: ReactNode; slug: string }) {
+  const pathname = usePathname();
   const { user, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [apiReachability, setApiReachability] = useState<ApiReachability>(getApiReachability());
@@ -154,6 +158,14 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
     if (!isAuthenticated || !scopeKey) return;
     void offlineDb.open().catch(() => undefined);
   }, [isAuthenticated, scopeKey]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !pathname.includes('/orders/new')) return;
+    rememberLastPosUrl(pathname);
+    if (apiReachability === 'online') {
+      void warmPosShellCache(pathname);
+    }
+  }, [apiReachability, isAuthenticated, pathname]);
 
   const value = useMemo<OfflinePosContextValue>(
     () => ({

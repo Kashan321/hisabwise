@@ -30,8 +30,10 @@ Migration: `20261111120000_pos_offline_devices`
 2. Service worker is emitted to `public/sw.js` (disabled in `next dev`; enabled in production build).
 3. After deploy, tenants should **hard-refresh once** (or revisit POS) so the service worker installs.
 4. Serwist is configured with `cacheOnNavigation: true` — tenants must open **New Order while online** once so RSC/HTML responses are cached before going offline.
-5. The service worker uses **NetworkOnly** for `/api/*` so cached `/health` cannot fake an online state while offline.
-4. No new env vars are required if `NEXT_PUBLIC_API_URL` already points at `/api/v1`.
+5. The app warms **`/offline-pos`** (precached shell) and `/{slug}/orders/new` after the first online POS session. If a hard reload of New Order cannot hydrate (App Router RSC miss), the navigate fallback serves **`/offline-pos`**, which restores the cashier session from IndexedDB.
+6. The service worker uses **NetworkOnly** for `/api/*` so cached `/health` cannot fake an online state while offline.
+7. `reloadOnOnline` is **false** — coming back online does not force a full page reload.
+8. No new env vars are required if `NEXT_PUBLIC_API_URL` already points at `/api/v1`.
 
 ## Tenant guidance
 

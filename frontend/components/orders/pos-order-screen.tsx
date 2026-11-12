@@ -36,7 +36,11 @@ import { useOfflinePos } from '@/components/offline/offline-pos-provider';
 import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
 import { enqueueOfflineCheckout } from '@/lib/offline/pos-checkout';
 import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
-import { isPosEffectivelyOffline, offlineCheckoutBannerMessage } from '@/lib/offline/effective-offline';
+import {
+  isNetworkFailureError,
+  isPosEffectivelyOffline,
+  offlineCheckoutBannerMessage,
+} from '@/lib/offline/effective-offline';
 import { readOfflineSnapshot } from '@/lib/offline/snapshot';
 import type { Customer, MenuItem, Order, OrderItem, Promotion } from '@/lib/api/types';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
@@ -1814,6 +1818,8 @@ export function PosOrderScreen({
   }
 
   useEffect(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (offlinePos.apiReachability !== 'online') return;
     const pending = readPendingCheckout(slug);
     if (!pending) return;
     let cancelled = false;
@@ -1831,7 +1837,7 @@ export function PosOrderScreen({
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [offlinePos.apiReachability, slug]);
 
   function clearOrder() {
     resetCheckoutIdempotencyKey(slug);
@@ -2041,10 +2047,10 @@ export function PosOrderScreen({
   async function submitNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
     if (checkoutInFlightRef.current) return;
 
-    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine;
+    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
     const effectivelyOffline = isPosEffectivelyOffline({
       apiReachability: offlinePos.apiReachability,
-      browserOnline: browserOnline && network.online,
+      browserOnline,
     });
 
     if (effectivelyOffline) {
@@ -2064,16 +2070,12 @@ export function PosOrderScreen({
       await processNewOrderSuccess(data, asDraft);
     } catch (err) {
       const mayRetryOffline = offlinePos.scopeKey && !waiterMode && !asDraft && orderMode !== 'DELIVERY';
-      if (mayRetryOffline) {
-        const snapshot = await readOfflineSnapshot(offlinePos.scopeKey!);
-        if (snapshot?.menu?.length) {
-          toast.error('Connection lost — save this sale offline with cash.');
-          setOfflineCheckoutItems(items);
-          setOfflineCheckoutOpen(true);
-          return;
-        }
+      const networkFailed = !browserOnline || isNetworkFailureError(err);
+      if (mayRetryOffline && networkFailed) {
+        await beginOfflineCashCheckout(items, asDraft);
+        return;
       }
-      if (!browserOnline || !network.online) {
+      if (!browserOnline) {
         await beginOfflineCashCheckout(items, asDraft);
         return;
       }

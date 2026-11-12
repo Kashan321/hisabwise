@@ -23,6 +23,10 @@ import {
 } from '@/lib/api/auth-session';
 import type { AuthUser } from '@/lib/api/types';
 import { detectBusinessCurrencyFromIp } from '@/lib/geo/detect-currency';
+import {
+  isBrowserOffline,
+  loadCachedAuthUserForOffline,
+} from '@/lib/offline/session';
 
 interface AuthState {
   user: AuthUser | null;
@@ -72,7 +76,13 @@ function setAuthUser(user: AuthUser | null) {
 }
 
 async function loadTenantUser(): Promise<AuthUser | null> {
+  if (isBrowserOffline() && getTenantToken()) {
+    const cached = await loadCachedAuthUserForOffline();
+    if (cached) return cached;
+  }
+
   if (!getTenantToken()) {
+    if (isBrowserOffline()) return null;
     const refreshed = await refreshTenantSession();
     if (refreshed?.user) return refreshed.user as AuthUser;
     if (!getTenantToken()) return null;
@@ -82,6 +92,13 @@ async function loadTenantUser(): Promise<AuthUser | null> {
     const data = await apiFetch<{ user: AuthUser }>('/auth/me');
     return data.user;
   } catch {
+    if (isBrowserOffline()) {
+      const cached = await loadCachedAuthUserForOffline();
+      if (cached) return cached;
+    }
+
+    if (isBrowserOffline()) return null;
+
     const refreshed = await refreshTenantSession();
     if (refreshed?.user) return refreshed.user as AuthUser;
     if (refreshed?.accessToken) {
@@ -89,9 +106,13 @@ async function loadTenantUser(): Promise<AuthUser | null> {
         const data = await apiFetch<{ user: AuthUser }>('/auth/me');
         return data.user;
       } catch {
+        const cached = await loadCachedAuthUserForOffline();
+        if (cached) return cached;
         return null;
       }
     }
+    const cached = await loadCachedAuthUserForOffline();
+    if (cached) return cached;
     return null;
   }
 }
@@ -112,7 +133,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthUser(loadedUser);
         setLastBusinessSlug(loadedUser.businessSlug);
       } else if (getTenantToken()) {
-        clearTenantToken();
+        if (!isBrowserOffline()) {
+          clearTenantToken();
+        }
         setAuthUser(null);
       } else {
         setAuthUser(null);
