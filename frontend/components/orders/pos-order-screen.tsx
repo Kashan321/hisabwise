@@ -927,7 +927,9 @@ export function PosOrderScreen({
   const heldOrderId = searchParams.get('heldOrderId');
   const showOrderTakerField =
     !waiterMode && canAssignOrderTaker(user) && !existingOrderId && !heldOrderId;
-  const { data: existingOrder } = useOrder(existingOrderId ?? '');
+  const { data: existingOrderRaw } = useOrder(existingOrderId ?? '');
+  /** Without this, React Query keepPreviousData can leave a paid/closed order attached after "New bill". */
+  const existingOrder = existingOrderId ? existingOrderRaw : undefined;
   const { data: heldOrder } = useOrder(heldOrderId ?? '');
   const { data: heldOrdersData } = useHeldOrders();
   const heldOrderCount = heldOrdersData?.orders.length ?? 0;
@@ -1096,7 +1098,7 @@ export function PosOrderScreen({
   }, [searchParams]);
 
   useEffect(() => {
-    if (!existingOrder) return;
+    if (!existingOrderId || !existingOrder) return;
     const mode = existingOrder.orderType;
     if (mode === 'DINE_IN' || mode === 'TAKEAWAY' || mode === 'DELIVERY') {
       setOrderMode(mode);
@@ -1107,7 +1109,7 @@ export function PosOrderScreen({
     if (existingOrder.deliveryAddress) setDeliveryAddress(existingOrder.deliveryAddress);
     if (existingOrder.deliveryNotes) setDeliveryNotes(existingOrder.deliveryNotes);
     if (existingOrder.notes) setOrderNotes(existingOrder.notes);
-  }, [existingOrder]);
+  }, [existingOrderId, existingOrder]);
 
   useEffect(() => {
     if (!existingOrderId || !existingOrder) return;
@@ -1140,7 +1142,7 @@ export function PosOrderScreen({
     existingOrderId && existingOrder && !canAddItemsToOpenTab(existingOrder),
   );
   const pricingLocked = Boolean(
-    existingOrder && !canUpdateOrderPricing(existingOrder),
+    existingOrderId && existingOrder && !canUpdateOrderPricing(existingOrder),
   );
   const orderPricingEditable = !pricingLocked;
 
@@ -1735,11 +1737,6 @@ export function PosOrderScreen({
 
   function validateDeliveryDetails(): boolean {
     if (orderMode !== 'DELIVERY') return true;
-    if (!deliveryAddress.trim()) {
-      toast.error('Enter a delivery address.');
-      setCartOpen(true);
-      return false;
-    }
     if (!customerName.trim()) {
       toast.error('Enter the customer name for delivery.');
       setCartOpen(true);
@@ -2247,7 +2244,7 @@ export function PosOrderScreen({
               </div>
               <Input
                 dense
-                label="Address"
+                label="Address (optional)"
                 value={deliveryAddress}
                 onChange={(e) => {
                   detachCustomerLink();

@@ -486,6 +486,31 @@ function buildOrderMetaHtml(
   return lines.join('');
 }
 
+function buildDeliveryCustomerHtml(order: Order, copyType: ReceiptCopyType): string {
+  if (copyType === 'kitchen' || order.orderType !== 'DELIVERY') return '';
+
+  const name = order.customerName?.trim();
+  const phone = order.customerPhone?.trim();
+  const address = order.deliveryAddress?.trim();
+  const notes = order.deliveryNotes?.trim();
+  if (!name && !phone && !address && !notes) return '';
+
+  const lines: string[] = [];
+  if (name) {
+    lines.push(`<div class="meta-line">Customer: ${escapeHtml(name)}</div>`);
+  }
+  if (phone) {
+    lines.push(`<div class="meta-line">Phone: ${escapeHtml(phone)}</div>`);
+  }
+  if (address) {
+    lines.push(`<div class="meta-line">Address: ${escapeHtml(address)}</div>`);
+  }
+  if (notes) {
+    lines.push(`<div class="meta-line">Delivery notes: ${escapeHtml(notes)}</div>`);
+  }
+  return `<section class="delivery-customer-block">${lines.join('')}</section>`;
+}
+
 function buildCustomerFooter(order: Order, template: ReceiptTemplate): string {
   const barcodeValue = formatOrderNumber(order);
   let barcodeSvg = '';
@@ -1185,6 +1210,8 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
     <section class="order-meta">
       ${buildOrderMetaHtml(order, metaTableLabel, copyType, template, receiptCtx)}
     </section>
+
+    ${buildDeliveryCustomerHtml(order, copyType)}
 
     ${beforeItemsBlock}
 

@@ -59,7 +59,7 @@ export const DEFAULT_RECEIPT_LABELS: ReceiptTemplateLabels = {
   orderTakerSeparator: ': ',
 };
 
-export const RECEIPT_PLACEHOLDER_HINT = `{businessName} {address} {phone} {orderNumber} {date} {time} {datetime} {table} {orderType} {orderTaker} {promotion} {notes} {subtotal} {total} {copyBanner} — blank line removes a label prefix when editing labels below`;
+export const RECEIPT_PLACEHOLDER_HINT = `{businessName} {address} {phone} {orderNumber} {date} {time} {datetime} {table} {orderType} {orderTaker} {promotion} {notes} {subtotal} {total} {copyBanner} {customerName} {customerPhone} {deliveryAddress} {deliveryNotes} — blank line removes a label prefix when editing labels below`;
 
 export const RECEIPT_CUSTOM_BLOCK_PLACEMENTS: {
   value: ReceiptCustomBlockPlacement;
@@ -152,5 +152,9 @@ export function buildReceiptPlaceholderContext(input: {
     subtotal: input.formatMoney(order.subtotal),
     total: input.formatMoney(order.totalAmount),
     copyBanner: input.copyBanner,
+    customerName: order.customerName?.trim() ?? '',
+    customerPhone: order.customerPhone?.trim() ?? '',
+    deliveryAddress: order.deliveryAddress?.trim() ?? '',
+    deliveryNotes: order.deliveryNotes?.trim() ?? '',
   };
 }
