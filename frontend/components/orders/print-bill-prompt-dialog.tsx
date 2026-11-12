@@ -3,12 +3,20 @@
 import { Modal } from '@/components/ui/modal';
 import { Icon } from '@/components/ui';
 
-export type PrintBillPromptContext = 'order-placed' | 'order-completed' | 'order-delivered';
+export type PrintBillPromptContext =
+  | 'order-placed'
+  | 'order-placed-followup'
+  | 'order-completed'
+  | 'order-delivered';
 
 const COPY: Record<PrintBillPromptContext, { title: string; message: string }> = {
   'order-placed': {
     title: 'Print bill?',
     message: 'This order was just placed. Would you like to print the bill now?',
+  },
+  'order-placed-followup': {
+    title: 'Order placed',
+    message: 'Customer receipt is printing. Add more items to this order?',
   },
   'order-completed': {
     title: 'Print bill?',
@@ -34,6 +42,7 @@ export function PrintBillPromptDialog({
   onAddMore?: () => void;
 }) {
   const copy = COPY[context];
+  const skipPrintPrompt = context === 'order-placed-followup';
 
   return (
     <Modal
@@ -60,14 +69,16 @@ export function PrintBillPromptDialog({
               Add more items
             </button>
           )}
-          <button
-            type="button"
-            onClick={onPrint}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg font-body-emphasis bg-primary text-on-primary hover:opacity-90 transition-all active:scale-[0.98]"
-          >
-            <Icon name="print" className="text-lg" />
-            Print bill
-          </button>
+          {!skipPrintPrompt && (
+            <button
+              type="button"
+              onClick={onPrint}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg font-body-emphasis bg-primary text-on-primary hover:opacity-90 transition-all active:scale-[0.98]"
+            >
+              <Icon name="print" className="text-lg" />
+              Print bill
+            </button>
+          )}
         </>
       }
     >

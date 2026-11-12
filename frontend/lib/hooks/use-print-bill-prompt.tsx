@@ -40,6 +40,36 @@ export function usePrintBillPrompt(options: {
     onDone?.();
   }, [prompt]);
 
+  const printCustomerBill = useCallback(
+    (order: Order) => {
+      if (isPrintingRef.current) return;
+      isPrintingRef.current = true;
+      try {
+        const tableLabel =
+          options.getTableLabel?.(order) ??
+          order.tableIdentifier ??
+          (order.tableId ? 'Table' : '—');
+        printOrderReceipt(order, {
+          tableLabel,
+          businessName: options.businessName,
+          businessLocation: options.businessLocation,
+          businessPhone: options.businessPhone,
+          businessPhoneSecondary: options.businessPhoneSecondary,
+          businessLogoUrl: options.businessLogoUrl,
+          copyType: 'customer',
+          currency: options.currency,
+          receiptTemplate,
+        });
+        toast.success(`Printing bill for ${formatOrderLabel(order)}`);
+      } catch (err) {
+        toast.error(formatApiError(err));
+      } finally {
+        isPrintingRef.current = false;
+      }
+    },
+    [options, receiptTemplate, toast],
+  );
+
   const queuePrintBillPrompt = useCallback(
     (
       order: Order,
@@ -47,42 +77,27 @@ export function usePrintBillPrompt(options: {
       onDone?: () => void,
       onAddMore?: () => void,
     ) => {
+      if (context === 'order-placed') {
+        printCustomerBill(order);
+        if (onAddMore) {
+          setPrompt({ order, context: 'order-placed-followup', onDone, onAddMore });
+        } else {
+          onDone?.();
+        }
+        return;
+      }
       setPrompt({ order, context, onDone, onAddMore });
     },
-    [],
+    [printCustomerBill],
   );
 
   const handlePrint = useCallback(() => {
-    if (!prompt || isPrintingRef.current) return;
-
+    if (!prompt) return;
     const current = prompt;
-    isPrintingRef.current = true;
     setPrompt(null);
-
-    try {
-      const tableLabel =
-        options.getTableLabel?.(current.order) ??
-        current.order.tableIdentifier ??
-        (current.order.tableId ? 'Table' : '—');
-      printOrderReceipt(current.order, {
-        tableLabel,
-        businessName: options.businessName,
-        businessLocation: options.businessLocation,
-        businessPhone: options.businessPhone,
-        businessPhoneSecondary: options.businessPhoneSecondary,
-        businessLogoUrl: options.businessLogoUrl,
-        copyType: 'customer',
-        currency: options.currency,
-        receiptTemplate,
-      });
-      toast.success(`Printing bill for ${formatOrderLabel(current.order)}`);
-    } catch (err) {
-      toast.error(formatApiError(err));
-    } finally {
-      isPrintingRef.current = false;
-      current.onDone?.();
-    }
-  }, [options, prompt, toast]);
+    printCustomerBill(current.order);
+    current.onDone?.();
+  }, [printCustomerBill, prompt]);
 
   const handleAddMore = useCallback(() => {
     if (!prompt) return;
@@ -101,5 +116,5 @@ export function usePrintBillPrompt(options: {
     />
   );
 
-  return { queuePrintBillPrompt, PrintBillPrompt };
+  return { queuePrintBillPrompt, printCustomerBill, PrintBillPrompt };
 }

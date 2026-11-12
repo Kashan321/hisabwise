@@ -899,7 +899,7 @@ export function PosOrderScreen({
     () => Object.fromEntries(tables.map((t) => [t.id, t.tableIdentifier])),
     [tables],
   );
-  const { queuePrintBillPrompt, PrintBillPrompt } = usePrintBillPrompt({
+  const { queuePrintBillPrompt, printCustomerBill, PrintBillPrompt } = usePrintBillPrompt({
     businessName: business?.name,
     businessLocation: business?.location,
     ...receiptPrintPhoneOptions(business),
@@ -1914,6 +1914,7 @@ export function PosOrderScreen({
         addMoreHref ? () => router.push(addMoreHref) : undefined,
       );
     } else {
+      printCustomerBill(data.order);
       setPunchedOrder(data.order);
     }
   }
@@ -2027,6 +2028,7 @@ export function PosOrderScreen({
       toast.success(waiterMode ? 'Order placed' : 'Order punched');
       setCartOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      printCustomerBill(order);
       setPunchedOrder(order);
       router.replace(newBillHref);
     } catch (err) {
