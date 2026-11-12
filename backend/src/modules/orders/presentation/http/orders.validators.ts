@@ -27,31 +27,34 @@ const orderItemSchema = z.object({
 
 const discountTypeEnum = z.enum(['PERCENTAGE', 'FIXED']);
 
-export const createOrderSchema = z
-  .object({
-    source: orderSourceEnum,
-    orderType: orderTypeEnum.optional(),
-    tableId: z.string().uuid().optional(),
-    customerId: z.string().uuid().optional(),
-    promotionId: z.string().uuid().optional(),
-    discountType: discountTypeEnum.optional(),
-    discountValue: z.number().min(0).optional(),
-    isDraft: z.boolean().optional(),
-    notes: z.string().trim().max(500).optional(),
-    customerName: z.string().trim().max(120).optional(),
-    customerPhone: z.string().trim().max(32).optional(),
-    deliveryAddress: z.string().trim().max(500).optional(),
-    deliveryNotes: z.string().trim().max(500).optional(),
-    taxRate: z.number().min(0).max(1).optional(),
-    serviceRate: z.number().min(0).max(1).optional(),
-    idempotencyKey: z.string().uuid().optional(),
-    /** Staff member who took the order (optional; waiters are assigned automatically). */
-    waiterId: z.union([z.string().uuid(), z.null()]).optional(),
-    /** Free-text order taker when not a staff user (temporary). */
-    waiterName: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
-    items: z.array(orderItemSchema).min(1),
-  })
-  .superRefine((data, ctx) => {
+export const createOrderObjectSchema = z.object({
+  source: orderSourceEnum,
+  orderType: orderTypeEnum.optional(),
+  tableId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional(),
+  promotionId: z.string().uuid().optional(),
+  discountType: discountTypeEnum.optional(),
+  discountValue: z.number().min(0).optional(),
+  isDraft: z.boolean().optional(),
+  notes: z.string().trim().max(500).optional(),
+  customerName: z.string().trim().max(120).optional(),
+  customerPhone: z.string().trim().max(32).optional(),
+  deliveryAddress: z.string().trim().max(500).optional(),
+  deliveryNotes: z.string().trim().max(500).optional(),
+  taxRate: z.number().min(0).max(1).optional(),
+  serviceRate: z.number().min(0).max(1).optional(),
+  idempotencyKey: z.string().uuid().optional(),
+  /** Staff member who took the order (optional; waiters are assigned automatically). */
+  waiterId: z.union([z.string().uuid(), z.null()]).optional(),
+  /** Free-text order taker when not a staff user (temporary). */
+  waiterName: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
+  items: z.array(orderItemSchema).min(1),
+});
+
+export function applyCreateOrderRefinements(
+  data: z.infer<typeof createOrderObjectSchema>,
+  ctx: z.RefinementCtx,
+) {
     const hasWaiterId = data.waiterId != null && data.waiterId !== '';
     const hasWaiterName =
       data.waiterName != null && data.waiterName !== '' && String(data.waiterName).trim().length > 0;
@@ -83,7 +86,9 @@ export const createOrderSchema = z
         path: ['discountType'],
       });
     }
-  });
+}
+
+export const createOrderSchema = createOrderObjectSchema.superRefine(applyCreateOrderRefinements);
 
 export const addOrderItemsSchema = z.object({
   items: z.array(orderItemSchema).min(1),

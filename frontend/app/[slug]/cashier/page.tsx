@@ -141,7 +141,7 @@ export default function CashierPage({ params }: { params: Promise<{ slug: string
       ) : !shift ? (
         <div className="max-w-lg mx-auto">
           <div className="rounded-2xl border border-outline-variant/15 bg-surface-container-lowest overflow-hidden card-hairline">
-            <div className="bg-gradient-to-br from-primary/90 to-[#3d8a7e] px-6 py-8 text-on-primary text-center">
+            <div className="bg-gradient-to-br from-primary/90 to-[var(--primary-gradient-end)] px-6 py-8 text-on-primary text-center">
               <div className="w-14 h-14 mx-auto rounded-2xl bg-on-primary/15 flex items-center justify-center mb-4">
                 <Icon name="point_of_sale" className="text-3xl" />
               </div>
@@ -171,7 +171,7 @@ export default function CashierPage({ params }: { params: Promise<{ slug: string
       ) : (
         <div className="space-y-5">
           {/* Active shift hero */}
-          <section className="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary to-[#3d8a7e] p-5 md:p-6 text-on-primary shadow-sm">
+          <section className="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary to-[var(--primary-gradient-end)] p-5 md:p-6 text-on-primary shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-on-primary/15 border border-on-primary/20 text-[11px] font-bold uppercase tracking-wider mb-3">

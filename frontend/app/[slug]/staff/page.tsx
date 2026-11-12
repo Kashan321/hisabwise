@@ -154,7 +154,7 @@ export default function StaffPage({ params }: { params: Promise<{ slug: string }
     <BusinessLayout slug={slug} hideFab>
       <div className="md:hidden mb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-primary to-[#3d8a7e] text-on-primary flex items-center justify-center shadow-md shadow-primary/20">
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-primary to-[var(--primary-gradient-end)] text-on-primary flex items-center justify-center shadow-md shadow-primary/20">
             <Icon name="badge" className="text-lg" />
           </div>
           <div className="min-w-0 flex-1">

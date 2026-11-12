@@ -616,7 +616,7 @@ export function OverviewDashboard({ slug }: { slug: string }) {
   return (
     <div className="space-y-4 md:space-y-5">
       {/* Hero — compact strip */}
-      <section className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary to-[#3d8a7e] px-4 py-3 md:px-5 md:py-3.5 text-on-primary shadow-sm">
+      <section className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary to-[var(--primary-gradient-end)] px-4 py-3 md:px-5 md:py-3.5 text-on-primary shadow-sm">
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="font-caption uppercase tracking-wider text-on-primary/65 text-[10px] leading-none">

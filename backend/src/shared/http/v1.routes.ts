@@ -22,6 +22,7 @@ import { cashShiftRouter } from '../../modules/cash-shift/presentation/http/cash
 import { businessDayRouter } from '../../modules/business-day/presentation/http/business-day.routes';
 import { feedbackRouter } from '../../modules/feedback/presentation/http/feedback.routes';
 import { tenantAlertsRouter } from '../../modules/tenant-alerts/presentation/http/tenant-alerts.routes';
+import { posOfflineRouter } from '../../modules/pos-offline/presentation/http/pos-offline.routes';
 
 export function createV1Router(): Router {
   const router = Router();
@@ -52,6 +53,7 @@ export function createV1Router(): Router {
   router.use('/feedback', feedbackRouter);
   router.use('/alerts', tenantAlertsRouter);
   router.use('/platform', platformRouter);
+  router.use('/pos', posOfflineRouter);
 
   return router;
 }

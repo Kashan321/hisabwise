@@ -1,3 +1,4 @@
+import Script from 'next/script';
 import { Poppins } from 'next/font/google';
 import { MicrosoftClarity } from '@/components/analytics/microsoft-clarity';
 import { APP_NAME, APP_TAGLINE } from '@/lib/config';
@@ -36,6 +37,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-full flex flex-col bg-surface text-on-surface font-body-base font-sans">
+        {process.env.NODE_ENV === 'production' ? (
+          <Script id="register-sw" strategy="afterInteractive">
+            {`if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{scope:'/'});}`}
+          </Script>
+        ) : null}
         <MicrosoftClarity />
         <Providers>{children}</Providers>
       </body>

@@ -5,9 +5,9 @@ export const DEFAULT_BRAND_COLOR = BRANDING.defaultBrandColor;
 
 export const DEFAULT_BUSINESS_THEME = {
   primaryColor: DEFAULT_BRAND_COLOR,
-  secondaryColor: '#4A9A8E',
-  backgroundColor: '#F9F9F8',
-  textColor: '#1A1C1C',
+  secondaryColor: '#3B4554',
+  backgroundColor: '#FFFFFF',
+  textColor: '#111827',
 } as const;
 
 export type BusinessThemeInput = {

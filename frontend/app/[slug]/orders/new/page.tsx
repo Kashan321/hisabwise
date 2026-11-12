@@ -20,6 +20,10 @@ import { useAutoDetectCurrency } from '@/lib/hooks/use-auto-detect-currency';
 import { themeToStyle } from '@/lib/theme/theme-css';
 import { resolveTenantPageTitle } from '@/lib/document-title';
 import { useTenantDocumentTitle } from '@/lib/hooks/use-document-title';
+import { isBrowserOffline } from '@/lib/offline/session';
+import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
+import { OfflinePosProvider } from '@/components/offline/offline-pos-provider';
+import { OfflinePosBanner } from '@/components/offline/offline-pos-banner';
 
 function NewBillContent({ slug, exitHref }: { slug: string; exitHref: string }) {
   return <PosOrderScreen slug={slug} fullScreen exitHref={exitHref} />;
@@ -47,7 +51,15 @@ export default function NewOrderPage({ params }: { params: Promise<{ slug: strin
   useTenantDocumentTitle(pageTitle, branchName);
 
   useEffect(() => {
+    if (isReady && pathname.includes('/orders/new') && isAuthenticated) {
+      void warmPosShellCache(pathname);
+      router.prefetch(pathname);
+    }
+  }, [isAuthenticated, isReady, pathname, router]);
+
+  useEffect(() => {
     if (isReady && !isAuthenticated) {
+      if (isBrowserOffline()) return;
       router.replace('/login');
       return;
     }
@@ -91,19 +103,22 @@ export default function NewOrderPage({ params }: { params: Promise<{ slug: strin
   }
 
   return (
-    <div
-      className="h-[100dvh] max-h-[100dvh] w-full min-h-0 flex flex-col overflow-hidden pos-bill-immersive"
-      style={themeToStyle(business)}
-    >
-      <Suspense
-        fallback={
-          <div className="flex flex-1 items-center justify-center">
-            <Spinner />
-          </div>
-        }
+    <OfflinePosProvider slug={slug}>
+      <div
+        className="h-[100dvh] max-h-[100dvh] w-full min-h-0 flex flex-col overflow-hidden pos-bill-immersive"
+        style={themeToStyle(business)}
       >
-        <NewBillContent slug={slug} exitHref={exitHref} />
-      </Suspense>
-    </div>
+        <OfflinePosBanner />
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner />
+            </div>
+          }
+        >
+          <NewBillContent slug={slug} exitHref={exitHref} />
+        </Suspense>
+      </div>
+    </OfflinePosProvider>
   );
 }

@@ -193,9 +193,29 @@ model Business {
   feedbackTickets        FeedbackTicket[]
   riderCashSettlements   RiderCashSettlement[]
   kitchenTickets         KitchenTicket[]
+  posDevices             PosDevice[]
   receiptTemplate        ReceiptTemplate?   @relation(fields: [receiptTemplateId], references: [id], onDelete: SetNull)
 
   @@map("businesses")
+}
+
+model PosDevice {
+  id                      String    @id @default(uuid()) @db.Uuid
+  businessId              String    @map("business_id") @db.Uuid
+  deviceKey               String    @map("device_key") @db.Uuid
+  ticketPrefix            String    @map("ticket_prefix") @db.VarChar(3)
+  nextOfflineTicketNumber Int       @default(1) @map("next_offline_ticket_number")
+  label                   String?   @db.VarChar(120)
+  lastSeenAt              DateTime? @map("last_seen_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@unique([businessId, deviceKey])
+  @@index([businessId])
+  @@map("pos_devices")
 }
 
 model User {
@@ -668,6 +688,9 @@ model Order {
   ticketNumber        Int?            @map("ticket_number")
   ticketPrefix        String?         @map("ticket_prefix")
   idempotencyKey      String?         @map("idempotency_key") @db.Uuid
+  posDeviceId         String?         @map("pos_device_id") @db.Uuid
+  offlineTicketLabel  String?         @map("offline_ticket_label") @db.VarChar(32)
+  syncConflictFlags   Json?           @map("sync_conflict_flags")
   inventoryDeductedAt DateTime?       @map("inventory_deducted_at")
   inventoryReversedAt DateTime?       @map("inventory_reversed_at")
   createdAt           DateTime        @default(now()) @map("created_at")
@@ -689,6 +712,7 @@ model Order {
   payments       OrderPayment[]
   riderCashSettlement RiderCashSettlement?
   kitchenTickets      KitchenTicket[]
+  posDevice           PosDevice?      @relation(fields: [posDeviceId], references: [id], onDelete: SetNull)
 
   @@index([businessId, status, createdAt])
   @@index([businessId, cashShiftId])
@@ -1170,10 +1194,10 @@ model PlatformBillingSettings {
 
 model PlatformSettings {
   id              String   @id @default("default")
-  primaryColor    String   @default("#62B4A7") @map("primary_color")
-  secondaryColor  String   @default("#4A9A8E") @map("secondary_color")
-  backgroundColor String   @default("#F9F9F8") @map("background_color")
-  textColor       String   @default("#1A1C1C") @map("text_color")
+  primaryColor    String   @default("#212121") @map("primary_color")
+  secondaryColor  String   @default("#3B4554") @map("secondary_color")
+  backgroundColor String   @default("#FFFFFF") @map("background_color")
+  textColor       String   @default("#111827") @map("text_color")
   calendlyUrl     String?  @map("calendly_url")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

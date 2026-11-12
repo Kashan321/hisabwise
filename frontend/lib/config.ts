@@ -10,7 +10,7 @@ export const BRANDING = {
   tagline: 'Restaurant operations, POS, and real-time reporting in one place',
   platformAdmin: 'Hisab Wise Admin',
   platform: 'Hisab Wise Platform',
-  defaultBrandColor: '#62B4A7',
+  defaultBrandColor: '#212121',
 } as const;
 
 export const APP_NAME = BRANDING.name;
@@ -41,7 +41,12 @@ export function getTenantWsUrl(token: string): string {
     return url.toString();
   }
 
-  const api = new URL(API_BASE_URL);
+  const api = API_BASE_URL.startsWith('http')
+    ? new URL(API_BASE_URL)
+    : new URL(
+        API_BASE_URL,
+        typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+      );
   api.protocol = api.protocol === 'https:' ? 'wss:' : 'ws:';
   api.pathname = '/ws/tenant';
   api.search = '';

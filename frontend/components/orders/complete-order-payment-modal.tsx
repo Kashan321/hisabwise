@@ -52,6 +52,7 @@ export function CompleteOrderPaymentModal({
   totalAmount,
   loading,
   onConfirm,
+  cashOnly = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,6 +60,8 @@ export function CompleteOrderPaymentModal({
   totalAmount: number;
   loading?: boolean;
   onConfirm: (payload: CompleteOrderPaymentPayload) => void;
+  /** Offline POS: restrict to manual cash entry. */
+  cashOnly?: boolean;
 }) {
   const formatMoney = useFormatMoney();
   const [method, setMethod] = useState<PaymentMethod>('CASH');
@@ -70,13 +73,13 @@ export function CompleteOrderPaymentModal({
 
   useEffect(() => {
     if (!open) return;
-    setMethod('CASH');
+    setMethod(cashOnly ? 'CASH' : 'CASH');
     setCashTendered(totalAmount > 0 ? String(totalAmount) : '');
     setReference('');
     setSplitOpen(false);
     setSplitA({ method: 'CASH', amount: '' });
     setSplitB({ method: 'CARD', amount: '' });
-  }, [open, totalAmount]);
+  }, [open, totalAmount, cashOnly]);
 
   const cashPaid = useMemo(() => parseMoney(cashTendered), [cashTendered]);
 
@@ -240,6 +243,12 @@ export function CompleteOrderPaymentModal({
 
         {!splitOpen ? (
           <>
+            {cashOnly ? (
+              <p className="text-center font-caption text-on-surface-variant">
+                Offline mode — cash payments only. This sale will sync when you are back online.
+              </p>
+            ) : null}
+            {!cashOnly ? (
             <div className="flex flex-wrap justify-center gap-2">
               {QUICK_METHODS.map((m) => {
                 const pillLabel = PAYMENT_METHODS.find((p) => p.value === m)?.label ?? m;
@@ -281,6 +290,7 @@ export function CompleteOrderPaymentModal({
                 ))}
               </select>
             </div>
+            ) : null}
 
             {method === 'CASH' ? (
               <div className="space-y-3">
