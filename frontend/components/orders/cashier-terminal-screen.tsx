@@ -420,10 +420,6 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
 
   function validateDeliveryDetails(): boolean {
     if (orderMode !== 'DELIVERY') return true;
-    if (!deliveryAddress.trim()) {
-      toast.error('Enter a delivery address.');
-      return false;
-    }
     if (!customerName.trim()) {
       toast.error('Enter the customer name for delivery.');
       return false;
@@ -1219,7 +1215,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
                 <input
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
-                  placeholder="Delivery address"
+                  placeholder="Delivery address (optional)"
                   className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold"
                 />
               </div>
@@ -1282,7 +1278,7 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
                 <input
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
-                  placeholder="Delivery address"
+                  placeholder="Delivery address (optional)"
                   className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold"
                 />
               )}
