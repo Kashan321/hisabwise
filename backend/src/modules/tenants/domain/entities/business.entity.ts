@@ -22,6 +22,7 @@ export interface BusinessEntity {
   businessDayAutoCloseEnabled: boolean;
   businessDayCloseReminderEnabled: boolean;
   defaultTaxRate: number;
+  defaultServiceRate: number;
   defaultDeliveryCharge: number;
   createdAt: Date;
 }
@@ -47,5 +48,6 @@ export interface UpdateBusinessInput {
   businessDayAutoCloseEnabled?: boolean;
   businessDayCloseReminderEnabled?: boolean;
   defaultTaxRate?: number;
+  defaultServiceRate?: number;
   defaultDeliveryCharge?: number;
 }

@@ -96,9 +96,12 @@ import { useFormatMoney, useBusinessCurrency } from '@/lib/hooks/use-business-cu
 import { usePrintBillPrompt } from '@/lib/hooks/use-print-bill-prompt';
 import {
   businessDeliveryCharge,
+  businessServiceRatePercent,
+  businessServiceRatePercentLabel,
   businessTaxRatePercentLabel,
-  DEFAULT_SERVICE_RATE_PERCENT,
+  orderTypeUsesServiceCharge,
   estimateOrderTotal,
+  resolveServiceRatePercent,
   formatManualDiscountLabel,
   formatPromotionLabel,
   isPromotionApplicable,
@@ -137,6 +140,13 @@ const BILL_SCREEN_BORDER = 'border-[#E5E7E7]';
 const BILL_PRODUCT_CARD_BORDER =
   'border border-[#C8CCD0] shadow-[0_1px_8px_rgba(0,0,0,0.07)]';
 const BILL_PANEL_SHADOW = 'shadow-[0_1px_4px_rgba(0,0,0,0.05)]';
+/** Tighter lg bill sidebar when vertical space is limited (typical laptop display). */
+const LC = '[@media(max-height:820px)_and_(min-width:1024px)]:';
+
+function isMobileBillLayout(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(max-width: 1023px)').matches;
+}
 
 /** Line totals in Current Bill cart (existing + new items). */
 const CART_LINE_PRICE_CLASS =
@@ -644,6 +654,7 @@ function OrderPricingBreakdown({
   discountLabel,
   compact = false,
   showTotal = false,
+  showServiceCharge = true,
 }: {
   pricing: ReturnType<typeof estimateOrderTotal>;
   formatMoney: (amount: number | string | null | undefined) => string;
@@ -651,6 +662,7 @@ function OrderPricingBreakdown({
   discountLabel?: string | null;
   compact?: boolean;
   showTotal?: boolean;
+  showServiceCharge?: boolean;
 }) {
   const rowClass = compact
     ? 'text-xs leading-tight text-on-surface-variant'
@@ -662,7 +674,7 @@ function OrderPricingBreakdown({
   const hasChargeBreakdown =
     pricing.discountAmount > 0 ||
     pricing.taxAmount > 0 ||
-    pricing.serviceAmount > 0 ||
+    (showServiceCharge && pricing.serviceAmount > 0) ||
     pricing.deliveryAmount > 0;
 
   const showDetailRows = !compact || hasChargeBreakdown;
@@ -697,7 +709,7 @@ function OrderPricingBreakdown({
               <span className={amountClass}>{formatMoney(pricing.taxAmount)}</span>
             </div>
           )}
-          {pricing.serviceAmount > 0 && (
+          {showServiceCharge && pricing.serviceAmount > 0 && (
             <div className={`flex justify-between gap-2 ${rowClass}`}>
               <span>{compact ? 'Service' : 'Service charge'}</span>
               <span className={amountClass}>{formatMoney(pricing.serviceAmount)}</span>
@@ -895,6 +907,7 @@ export function PosOrderScreen({
   const { data: staff = [], isLoading: staffLoading } = useStaff();
   const themeStyle = useMemo(() => themeToStyle(business), [business]);
   const configuredTaxPercent = businessTaxRatePercentLabel(business);
+  const configuredServicePercent = businessServiceRatePercentLabel(business);
   const tableMap = useMemo(
     () => Object.fromEntries(tables.map((t) => [t.id, t.tableIdentifier])),
     [tables],
@@ -927,8 +940,11 @@ export function PosOrderScreen({
   const heldOrderId = searchParams.get('heldOrderId');
   const showOrderTakerField =
     !waiterMode && canAssignOrderTaker(user) && !existingOrderId && !heldOrderId;
-  const { data: existingOrder } = useOrder(existingOrderId ?? '');
-  const { data: heldOrder } = useOrder(heldOrderId ?? '');
+  const { data: existingOrderRaw } = useOrder(existingOrderId ?? '');
+  /** Without this, React Query keepPreviousData can leave a paid/closed order attached after "New bill". */
+  const existingOrder = existingOrderId ? existingOrderRaw : undefined;
+  const { data: heldOrderRaw } = useOrder(heldOrderId ?? '');
+  const heldOrder = heldOrderId ? heldOrderRaw : undefined;
   const { data: heldOrdersData } = useHeldOrders();
   const heldOrderCount = heldOrdersData?.orders.length ?? 0;
   const updateOrderStatus = useUpdateOrderStatus();
@@ -938,6 +954,14 @@ export function PosOrderScreen({
     const saved = localStorage.getItem(ORDER_MODE_KEY) as OrderMode | null;
     return saved && ['DINE_IN', 'TAKEAWAY', 'DELIVERY'].includes(saved) ? saved : 'DINE_IN';
   });
+  const billingOrderType = existingOrder?.orderType ?? orderMode;
+  const serviceChargeEnabled = orderTypeUsesServiceCharge(billingOrderType);
+
+  useEffect(() => {
+    if (serviceChargeEnabled) return;
+    setServiceRatePercent('');
+    setServiceRateCustomized(false);
+  }, [serviceChargeEnabled]);
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORY_ID);
   const [search, setSearch] = useState('');
   const [tableId, setTableId] = useState('');
@@ -953,7 +977,8 @@ export function PosOrderScreen({
   const [discountValue, setDiscountValue] = useState('');
   const [taxRatePercent, setTaxRatePercent] = useState('');
   const [taxRateCustomized, setTaxRateCustomized] = useState(false);
-  const [serviceRatePercent, setServiceRatePercent] = useState(String(DEFAULT_SERVICE_RATE_PERCENT));
+  const [serviceRatePercent, setServiceRatePercent] = useState('');
+  const [serviceRateCustomized, setServiceRateCustomized] = useState(false);
   const [orderNotes, setOrderNotes] = useState('');
   const [orderTaker, setOrderTaker] = useState<OrderTakerSelection>(EMPTY_ORDER_TAKER);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
@@ -981,6 +1006,9 @@ export function PosOrderScreen({
     el.scrollBy({ left: direction * step, behavior: 'smooth' });
   }, []);
   const displayedTaxPercent = taxRateCustomized ? taxRatePercent : configuredTaxPercent;
+  const displayedServicePercent = serviceRateCustomized
+    ? serviceRatePercent
+    : configuredServicePercent;
 
   useEffect(() => {
     if (existingOrderId || heldOrderId) {
@@ -1008,7 +1036,13 @@ export function PosOrderScreen({
         setTaxRatePercent('');
         setTaxRateCustomized(false);
       }
-      if (draft.serviceRatePercent) setServiceRatePercent(draft.serviceRatePercent);
+      if (draft.serviceRateCustomized && draft.serviceRatePercent.trim() && draft.serviceRatePercent.trim() !== '0') {
+        setServiceRatePercent(draft.serviceRatePercent);
+        setServiceRateCustomized(true);
+      } else {
+        setServiceRatePercent('');
+        setServiceRateCustomized(false);
+      }
       setOrderNotes(draft.orderNotes);
       setOrderTaker(draft.orderTaker ?? EMPTY_ORDER_TAKER);
     }
@@ -1030,7 +1064,7 @@ export function PosOrderScreen({
     if (heldOrder.deliveryNotes) setDeliveryNotes(heldOrder.deliveryNotes);
     if (heldOrder.notes) setOrderNotes(heldOrder.notes);
     setHeldOrderLoaded(true);
-    setCartOpen(true);
+    if (isMobileBillLayout()) setCartOpen(true);
   }, [heldOrderId, heldOrder, heldOrderLoaded]);
 
   useEffect(() => {
@@ -1055,7 +1089,8 @@ export function PosOrderScreen({
         discountValue,
         taxRatePercent: taxRateCustomized ? taxRatePercent : '',
         taxRateCustomized,
-        serviceRatePercent,
+        serviceRatePercent: serviceRateCustomized ? serviceRatePercent : '',
+        serviceRateCustomized,
         orderNotes,
         orderTaker,
       },
@@ -1080,6 +1115,7 @@ export function PosOrderScreen({
     taxRatePercent,
     taxRateCustomized,
     serviceRatePercent,
+    serviceRateCustomized,
     orderNotes,
     orderTaker,
   ]);
@@ -1130,8 +1166,23 @@ export function PosOrderScreen({
         setTaxRateCustomized(true);
         setTaxRatePercent(String(Math.round(taxPct * 100) / 100));
       }
-      if (Number.isFinite(servicePct) && servicePct >= 0) {
-        setServiceRatePercent(String(Math.round(servicePct * 100) / 100));
+      if (
+        orderTypeUsesServiceCharge(existingOrder.orderType) &&
+        Number.isFinite(servicePct) &&
+        servicePct >= 0
+      ) {
+        const rounded = Math.round(servicePct * 100) / 100;
+        const shopDefault = businessServiceRatePercent(business);
+        if (Math.abs(rounded - shopDefault) > 0.001) {
+          setServiceRateCustomized(true);
+          setServiceRatePercent(String(rounded));
+        } else {
+          setServiceRateCustomized(false);
+          setServiceRatePercent('');
+        }
+      } else {
+        setServiceRatePercent('');
+        setServiceRateCustomized(false);
       }
     }
   }, [existingOrderId, existingOrder]);
@@ -1143,6 +1194,14 @@ export function PosOrderScreen({
     existingOrder && !canUpdateOrderPricing(existingOrder),
   );
   const orderPricingEditable = !pricingLocked;
+
+  useEffect(() => {
+    if (existingOrderId) return;
+    pricingHydratedForOrderRef.current = null;
+    userEditedPricingRef.current = false;
+    pricingExplicitlyClearedRef.current = false;
+    lastPricingSaveKeyRef.current = '';
+  }, [existingOrderId]);
 
   useEffect(() => {
     userEditedPricingRef.current = false;
@@ -1404,7 +1463,11 @@ export function PosOrderScreen({
       taxRateCustomized ? taxRatePercent : '',
       business,
     );
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100 || 0));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
     const deliveryAmount =
       orderMode === 'DELIVERY' ? businessDeliveryCharge(business) : 0;
     return estimateOrderTotal(cartSubtotal, selectedPromotion, {
@@ -1420,6 +1483,8 @@ export function PosOrderScreen({
     taxRatePercent,
     taxRateCustomized,
     serviceRatePercent,
+    serviceRateCustomized,
+    serviceChargeEnabled,
     business,
     orderMode,
   ]);
@@ -1439,7 +1504,11 @@ export function PosOrderScreen({
       taxRateCustomized ? taxRatePercent : '',
       business,
     );
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100 || 0));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
     const deliveryAmount = Number(existingOrder?.deliveryAmount ?? 0);
     const combinedSubtotal = existingLinesSubtotal + cartSubtotal;
     return estimateOrderTotal(combinedSubtotal, selectedPromotion, {
@@ -1456,6 +1525,8 @@ export function PosOrderScreen({
     taxRatePercent,
     taxRateCustomized,
     serviceRatePercent,
+    serviceRateCustomized,
+    serviceChargeEnabled,
     business,
     existingOrder?.deliveryAmount,
   ]);
@@ -1474,7 +1545,11 @@ export function PosOrderScreen({
       taxRateCustomized ? taxRatePercent : '',
       business,
     );
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100 || 0));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
 
     const patch: {
       promotionId?: string | null;
@@ -1516,6 +1591,7 @@ export function PosOrderScreen({
     taxRateCustomized,
     taxRatePercent,
     serviceRatePercent,
+    serviceChargeEnabled,
     business,
     updateOrderPricing,
     toast,
@@ -1733,6 +1809,10 @@ export function PosOrderScreen({
       }));
   }
 
+  function openMobileBillDrawer() {
+    if (isMobileBillLayout()) setCartOpen(true);
+  }
+
   function validateDeliveryDetails(): boolean {
     if (orderMode !== 'DELIVERY') return true;
     if (!deliveryAddress.trim()) {
@@ -1742,12 +1822,12 @@ export function PosOrderScreen({
     }
     if (!customerName.trim()) {
       toast.error('Enter the customer name for delivery.');
-      setCartOpen(true);
+      openMobileBillDrawer();
       return false;
     }
     if (!customerPhone.trim()) {
       toast.error('Enter the customer phone for delivery.');
-      setCartOpen(true);
+      openMobileBillDrawer();
       return false;
     }
     return true;
@@ -1755,7 +1835,11 @@ export function PosOrderScreen({
 
   function buildCreateOrderPayload(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
     const taxRate = resolveTaxRatePercent(taxRateCustomized ? taxRatePercent : '', business);
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
     const resolvedTableId = orderMode === 'DINE_IN' ? tableId || undefined : undefined;
 
     return {
@@ -1768,7 +1852,7 @@ export function PosOrderScreen({
         ? { discountType: manualDiscount.type, discountValue: manualDiscount.value }
         : {}),
       taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
-      serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+      serviceRate: Number.isFinite(serviceRate) ? serviceRate : 0,
       notes: orderNotes.trim() || undefined,
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
@@ -1835,7 +1919,8 @@ export function PosOrderScreen({
       setOrderTaker(EMPTY_ORDER_TAKER);
       setTaxRatePercent('');
       setTaxRateCustomized(false);
-      setServiceRatePercent(String(DEFAULT_SERVICE_RATE_PERCENT));
+      setServiceRatePercent('');
+      setServiceRateCustomized(false);
       clearPosDraft(slug, waiterMode);
       resetPosSession();
     }
@@ -1969,7 +2054,11 @@ export function PosOrderScreen({
     }
 
     const taxRate = resolveTaxRatePercent(taxRateCustomized ? taxRatePercent : '', business);
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
 
     if (existingOrderId) {
       addOrderItems.mutate(
@@ -1977,7 +2066,7 @@ export function PosOrderScreen({
           orderId: existingOrderId,
           items,
           taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
-          serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+          serviceRate: Number.isFinite(serviceRate) ? serviceRate : 0,
         },
         {
           onSuccess: () => {
@@ -2009,7 +2098,11 @@ export function PosOrderScreen({
     }
 
     const taxRate = resolveTaxRatePercent(taxRateCustomized ? taxRatePercent : '', business);
-    const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
+    const serviceRate = resolveServiceRatePercent(
+      serviceRateCustomized ? serviceRatePercent : '',
+      business,
+      { enabled: serviceChargeEnabled },
+    );
     const items = buildCartItems();
 
     try {
@@ -2018,7 +2111,7 @@ export function PosOrderScreen({
           orderId: existingOrderId,
           items,
           taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
-          serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+          serviceRate: Number.isFinite(serviceRate) ? serviceRate : 0,
         });
         clearOrderAddDraft(slug, existingOrderId);
         syncAddDraftCounts();
@@ -2112,7 +2205,7 @@ export function PosOrderScreen({
               onClick={() => setOrderMode(mode)}
               disabled={Boolean(existingOrderId)}
               aria-pressed={selected}
-              className={`flex-1 px-2 py-2.5 rounded-md text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 border ${
+              className={`flex-1 px-2 py-2.5 ${LC}py-1.5 rounded-md text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 border ${
                 selected
                   ? 'bg-primary text-on-primary border-primary shadow-sm ring-2 ring-primary/30 ring-offset-1'
                   : 'text-on-surface-variant border-transparent hover:bg-surface-container-high'
@@ -2132,26 +2225,27 @@ export function PosOrderScreen({
           <button
             type="button"
             onClick={() => scrollDineInTables(-1)}
-            className="shrink-0 w-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface text-on-surface-variant hover:bg-surface-container-low"
+            className={`shrink-0 w-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface text-on-surface-variant hover:bg-surface-container-low ${LC}w-7 ${LC}rounded-md`}
             aria-label="Scroll tables left"
           >
             <Icon name="chevron_left" className="text-lg" />
           </button>
           <div
             ref={dineInTableScrollRef}
-            className="flex gap-1 overflow-x-auto hide-scrollbar flex-1 min-w-0 pb-0.5"
+            className={`flex gap-1 overflow-x-auto hide-scrollbar flex-1 min-w-0 pb-0.5 ${LC}pb-0`}
           >
             <button
               type="button"
               onClick={() => setTableId('')}
               aria-pressed={!tableId}
-              className={`shrink-0 px-3 py-2 rounded-lg text-xs font-semibold border ${
+              className={`shrink-0 px-3 py-2 ${LC}px-2 ${LC}py-1.5 rounded-lg text-xs font-semibold border ${
                 !tableId
                   ? 'bg-primary text-on-primary border-primary ring-2 ring-primary/25'
                   : 'border-outline-variant/30 text-on-surface-variant bg-surface'
               }`}
             >
-              No table assigned
+              <span className={`${LC}hidden`}>No table assigned</span>
+              <span className={`hidden ${LC}inline`}>Unassigned</span>
             </button>
             {tables.map((t) => {
               const orderOnTable = activeOrderByTable[t.id];
@@ -2178,10 +2272,10 @@ export function PosOrderScreen({
                   }}
                   aria-pressed={tableId === t.id}
                   aria-label={`Table ${label} ${CASHIER_STATUS_LABEL[cashierStatus]}`}
-                  className={`shrink-0 min-h-14 px-3 py-2 rounded-lg border ${chipClass}`}
+                  className={`shrink-0 min-h-14 px-3 py-2 ${LC}min-h-0 ${LC}px-2 ${LC}py-1.5 rounded-lg border ${chipClass}`}
                 >
-                  <span className="text-sm font-bold tracking-wide block">{label}</span>
-                  <span className="text-[10px] font-semibold opacity-80">
+                  <span className={`text-sm font-bold tracking-wide block ${LC}text-xs`}>{label}</span>
+                  <span className={`text-[10px] font-semibold opacity-80 ${LC}hidden`}>
                     {CASHIER_STATUS_LABEL[cashierStatus]}
                   </span>
                 </button>
@@ -2191,7 +2285,7 @@ export function PosOrderScreen({
           <button
             type="button"
             onClick={() => scrollDineInTables(1)}
-            className="shrink-0 w-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface text-on-surface-variant hover:bg-surface-container-low"
+            className={`shrink-0 w-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface text-on-surface-variant hover:bg-surface-container-low ${LC}w-7 ${LC}rounded-md`}
             aria-label="Scroll tables right"
           >
             <Icon name="chevron_right" className="text-lg" />
@@ -2199,6 +2293,12 @@ export function PosOrderScreen({
         </div>
       </div>
     ) : null;
+
+  const footerShowsChargeDetail =
+    pricing.discountAmount > 0 ||
+    pricing.taxAmount > 0 ||
+    (serviceChargeEnabled && pricing.serviceAmount > 0) ||
+    pricing.deliveryAmount > 0;
 
   const orderContextFields = !existingOrderId ? (
     <div className="space-y-1.5">
@@ -2285,7 +2385,7 @@ export function PosOrderScreen({
           {existingOrderId ? 'Add items from the menu.' : 'Tap products to build the bill.'}
         </p>
       ) : (
-        <div className="space-y-1.5">
+        <div className={`space-y-1.5 ${LC}space-y-1`}>
           {cartLines.map(({ lineKey, item, quantity, summaryLines, lineTotal }) => (
             <CartLineRow
               key={lineKey}
@@ -2315,7 +2415,7 @@ export function PosOrderScreen({
         }`}
       >
         <div
-          className="flex items-center gap-1.5 px-2 py-2 hover:bg-surface-container-low/80"
+          className={`flex items-center gap-1.5 px-2 py-2 ${LC}px-1.5 ${LC}py-1 hover:bg-surface-container-low/80`}
           role="presentation"
         >
           <button
@@ -2351,16 +2451,27 @@ export function PosOrderScreen({
                 setTaxRatePercent(percent);
               }}
             />
-            <span className="text-[10px] text-on-surface-variant">·</span>
-            <RatePercentPicker
-              shortLabel="Service"
-              value={serviceRatePercent}
-              presets={SERVICE_RATE_PRESETS}
-              onSelect={(percent) => {
-                markExistingOrderPricingEdited();
-                setServiceRatePercent(percent);
-              }}
-            />
+            {serviceChargeEnabled ? (
+              <>
+                <span className="text-[10px] text-on-surface-variant">·</span>
+                <RatePercentPicker
+                  shortLabel="Service"
+                  value={displayedServicePercent}
+                  presets={SERVICE_RATE_PRESETS}
+                  defaultPercentLabel={configuredServicePercent}
+                  onSelectDefault={() => {
+                    markExistingOrderPricingEdited();
+                    setServiceRateCustomized(false);
+                    setServiceRatePercent('');
+                  }}
+                  onSelect={(percent) => {
+                    markExistingOrderPricingEdited();
+                    setServiceRateCustomized(true);
+                    setServiceRatePercent(percent);
+                  }}
+                />
+              </>
+            ) : null}
             <span className="text-[10px] text-on-surface-variant">·</span>
             <PromotionQuickPicker
               promotionId={promotionId}
@@ -2476,6 +2587,7 @@ export function PosOrderScreen({
     showOrderTakerField ? (
       <OrderTakerSelectField
         compact
+        billSidebarDense
         staff={staff}
         value={orderTaker}
         loading={staffLoading}
@@ -2507,7 +2619,7 @@ export function PosOrderScreen({
     <Button
       type="button"
       variant="primary"
-      className="w-full !h-14 !font-bold uppercase tracking-wide shadow-md !flex !items-center !justify-center !gap-2 !flex-wrap"
+      className={`w-full !h-14 ${LC}!h-11 !font-bold uppercase tracking-wide shadow-md !flex !items-center !justify-center !gap-2 !flex-wrap`}
       disabled={primaryCheckoutDisabled}
       loading={isSubmitting}
       onClick={() => {
@@ -2519,7 +2631,9 @@ export function PosOrderScreen({
       }}
     >
       <span className="text-sm sm:text-base">{primaryCheckoutLabel}</span>
-      <span className="font-mono text-2xl sm:text-3xl font-bold tabular-nums normal-case leading-none">
+      <span
+        className={`font-mono text-2xl sm:text-3xl font-bold tabular-nums normal-case leading-none ${LC}text-xl`}
+      >
         {formatMoney(primaryCheckoutAmount)}
       </span>
     </Button>
@@ -2576,6 +2690,7 @@ export function PosOrderScreen({
           discountLabel={discountLabel}
           compact
           showTotal
+          showServiceCharge={serviceChargeEnabled}
         />
       )}
       {orderTakerStrip}
@@ -2969,7 +3084,7 @@ export function PosOrderScreen({
           ) : (
             <>
               <div
-                className={`shrink-0 px-2 py-2 border-b-2 border-primary/15 space-y-2 ${BILL_SCREEN_SURFACE}`}
+                className={`shrink-0 px-2 py-2 ${LC}px-1.5 ${LC}py-1 border-b-2 border-primary/15 space-y-2 ${LC}space-y-1 ${BILL_SCREEN_SURFACE}`}
               >
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <p className="text-sm font-bold text-primary truncate min-w-0">
@@ -2990,16 +3105,24 @@ export function PosOrderScreen({
                 {!existingOrderId && orderTypeSelector}
                 {dineInTablePicker}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-1.5 space-y-2">
+              <div
+                className={`flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-1.5 space-y-2 ${LC}py-1 ${LC}space-y-1`}
+              >
                 {!existingOrderId && orderMode !== 'DINE_IN' && orderContextFields && (
-                  <div className="pb-2 border-b border-outline-variant/10">{orderContextFields}</div>
+                  <div
+                    className={`pb-2 border-b border-outline-variant/10 ${LC}pb-1.5`}
+                  >
+                    {orderContextFields}
+                  </div>
                 )}
                 {cartItemsList}
               </div>
               <div
                 className={`shrink-0 flex flex-col border-t ${BILL_SCREEN_BORDER} ${BILL_SCREEN_SURFACE} ${BILL_PANEL_SHADOW}`}
               >
-                <div className="shrink-0 px-2 py-2 space-y-1.5 max-h-[min(180px,30vh)] overflow-y-auto overscroll-contain">
+                <div
+                  className={`shrink-0 px-2 py-2 space-y-1.5 max-h-[min(180px,30vh)] overflow-y-auto overscroll-contain ${LC}py-1 ${LC}space-y-1 ${LC}max-h-[min(100px,18vh)]`}
+                >
                   {existingOrderId && existingOrder && (
                     <div className="text-sm space-y-1">
                       <div className="flex justify-between gap-2">
@@ -3019,17 +3142,22 @@ export function PosOrderScreen({
                     </div>
                   )}
                   {!existingOrderId && cartLines.length > 0 && (
-                    <OrderPricingBreakdown
-                      pricing={pricing}
-                      formatMoney={formatMoney}
-                      taxPercentLabel={taxPercentLabel}
-                      discountLabel={discountLabel}
-                      compact
-                      showTotal
-                    />
+                    <div className={footerShowsChargeDetail ? undefined : `${LC}hidden`}>
+                      <OrderPricingBreakdown
+                        pricing={pricing}
+                        formatMoney={formatMoney}
+                        taxPercentLabel={taxPercentLabel}
+                        discountLabel={discountLabel}
+                        compact
+                        showTotal
+                        showServiceCharge={serviceChargeEnabled}
+                      />
+                    </div>
                   )}
                 </div>
-                <div className="shrink-0 px-2 pb-1 overflow-visible space-y-1.5">
+                <div
+                  className={`shrink-0 px-2 pb-1 overflow-visible space-y-1.5 ${LC}space-y-1 ${LC}pb-0.5`}
+                >
                   {orderTakerStrip}
                   {orderExtrasAccordion}
                   {existingOrderId && pricingLocked && (
@@ -3039,11 +3167,11 @@ export function PosOrderScreen({
                   )}
                 </div>
                 <div
-                  className={`shrink-0 flex gap-2 items-stretch px-2 py-2 pt-1 border-t ${BILL_SCREEN_BORDER} ${BILL_SCREEN_SURFACE}`}
+                  className={`shrink-0 flex gap-2 items-stretch px-2 py-2 pt-1 border-t ${BILL_SCREEN_BORDER} ${BILL_SCREEN_SURFACE} ${LC}py-1.5 ${LC}gap-1.5`}
                 >
                   {existingOrderId ? (
                     <>
-                      {newBillExitButton('flex-1 min-w-0 !h-14')}
+                      {newBillExitButton(`flex-1 min-w-0 !h-14 ${LC}!h-11`)}
                       <div className="flex-[2] min-w-0 flex">{punchOrderButton}</div>
                     </>
                   ) : (
@@ -3052,7 +3180,7 @@ export function PosOrderScreen({
                         <Button
                           type="button"
                           variant="outline"
-                          className="flex-1 min-w-0 !h-14 !text-sm !font-semibold"
+                          className={`flex-1 min-w-0 !h-14 ${LC}!h-11 !text-sm !font-semibold`}
                           disabled={!cartLines.length}
                           loading={isSubmitting}
                           onClick={() => void handleHoldOrder()}
@@ -3092,7 +3220,7 @@ export function PosOrderScreen({
       )}
 
       <Drawer
-        open={cartOpen}
+        open={cartOpen && isMobileBillLayout()}
         onClose={() => setCartOpen(false)}
         title={existingOrderId ? 'Add to order' : 'Current bill'}
         width="lg"

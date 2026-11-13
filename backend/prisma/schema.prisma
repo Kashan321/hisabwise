@@ -148,6 +148,7 @@ model Business {
   orderTicketPrefix      String         @default("TKT") @map("order_ticket_prefix")
   orderTicketResetDaily  Boolean        @default(true) @map("order_ticket_reset_daily")
   defaultTaxRate         Decimal        @default(0) @map("default_tax_rate") @db.Decimal(6, 4)
+  defaultServiceRate     Decimal        @default(0) @map("default_service_rate") @db.Decimal(6, 4)
   defaultDeliveryCharge  Decimal        @default(0) @map("default_delivery_charge") @db.Decimal(10, 2)
   nextOrderTicketNumber  Int            @default(1) @map("next_order_ticket_number")
   orderTicketDayKey      String?        @map("order_ticket_day_key")

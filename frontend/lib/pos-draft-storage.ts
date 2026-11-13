@@ -20,6 +20,7 @@ export interface PosDraft {
   taxRatePercent: string;
   taxRateCustomized?: boolean;
   serviceRatePercent: string;
+  serviceRateCustomized?: boolean;
   orderNotes: string;
   orderTaker?: OrderTakerSelection;
   /** @deprecated use orderTaker */
@@ -74,6 +75,7 @@ export function loadPosDraft(slug: string, waiterMode?: boolean): PosDraft | nul
       taxRatePercent: parsed.taxRatePercent ?? '',
       taxRateCustomized: parsed.taxRateCustomized === true,
       serviceRatePercent: parsed.serviceRatePercent ?? '',
+      serviceRateCustomized: parsed.serviceRateCustomized === true,
       orderNotes: parsed.orderNotes ?? '',
       orderTaker: parsed.orderTaker
         ? {

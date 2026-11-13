@@ -268,22 +268,33 @@ async function priceItems(
 
 async function getBusinessPricingDefaults(businessId: string): Promise<{
   defaultTaxRate: number;
+  defaultServiceRate: number;
   defaultDeliveryCharge: number;
 }> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { defaultTaxRate: true, defaultDeliveryCharge: true },
+    select: { defaultTaxRate: true, defaultServiceRate: true, defaultDeliveryCharge: true },
   });
   if (!business) {
     return {
       defaultTaxRate: ORDER.DEFAULT_TAX_RATE,
+      defaultServiceRate: ORDER.DEFAULT_SERVICE_RATE,
       defaultDeliveryCharge: ORDER.DEFAULT_DELIVERY_CHARGE,
     };
   }
   return {
     defaultTaxRate: Number(business.defaultTaxRate),
+    defaultServiceRate: Number(business.defaultServiceRate),
     defaultDeliveryCharge: Number(business.defaultDeliveryCharge),
   };
+}
+
+function serviceRateForOrderType(
+  orderType: string | undefined,
+  serviceRate?: number,
+): number | undefined {
+  if (orderType === 'TAKEAWAY' || orderType === 'DELIVERY') return 0;
+  return serviceRate;
 }
 
 function buildPricingResult(
@@ -296,6 +307,7 @@ function buildPricingResult(
     taxRate?: number;
     serviceRate?: number;
     businessDefaultTaxRate?: number;
+    businessDefaultServiceRate?: number;
     deliveryAmount?: number;
   },
 ): OrderPricingResult {
@@ -306,7 +318,8 @@ function buildPricingResult(
   const discountAmount = options?.discountAmount ?? 0;
   const discountedSubtotal = roundMoney(subtotal - discountAmount);
   const taxRate = options?.taxRate ?? options?.businessDefaultTaxRate ?? ORDER.DEFAULT_TAX_RATE;
-  const serviceRate = options?.serviceRate ?? ORDER.DEFAULT_SERVICE_RATE;
+  const serviceRate =
+    options?.serviceRate ?? options?.businessDefaultServiceRate ?? ORDER.DEFAULT_SERVICE_RATE;
   const taxAmount = roundMoney(discountedSubtotal * taxRate);
   const serviceAmount = roundMoney(discountedSubtotal * serviceRate);
   const deliveryAmount = roundMoney(options?.deliveryAmount ?? 0);
@@ -378,8 +391,9 @@ export class OrderPricingService implements OrderPricingPort {
       promotionTitle,
       discountAmount,
       taxRate: input.taxRate,
-      serviceRate: input.serviceRate,
+      serviceRate: serviceRateForOrderType(input.orderType, input.serviceRate),
       businessDefaultTaxRate: businessDefaults.defaultTaxRate,
+      businessDefaultServiceRate: businessDefaults.defaultServiceRate,
       deliveryAmount,
     });
   }
@@ -387,6 +401,7 @@ export class OrderPricingService implements OrderPricingPort {
   async calculateAdditionalItems(
     businessId: string,
     input: AddOrderItemsInput,
+    orderType?: string,
   ): Promise<OrderPricingResult> {
     if (!input.items.length) {
       throw new InvalidOrderItemError('At least one item is required');
@@ -397,8 +412,9 @@ export class OrderPricingService implements OrderPricingPort {
 
     return buildPricingResult(pricedItems, {
       taxRate: input.taxRate,
-      serviceRate: input.serviceRate,
+      serviceRate: serviceRateForOrderType(orderType, input.serviceRate),
       businessDefaultTaxRate: businessDefaults.defaultTaxRate,
+      businessDefaultServiceRate: businessDefaults.defaultServiceRate,
       deliveryAmount: 0,
     });
   }
@@ -481,6 +497,7 @@ export class OrderPricingService implements OrderPricingPort {
     if (serviceRate == null && discountedSubtotal > 0) {
       serviceRate = Number(order.serviceAmount) / discountedSubtotal;
     }
+    serviceRate = serviceRateForOrderType(order.orderType, serviceRate);
 
     return buildPricingResult([], {
       subtotalOverride: subtotal,
@@ -490,6 +507,7 @@ export class OrderPricingService implements OrderPricingPort {
       taxRate,
       serviceRate,
       businessDefaultTaxRate: businessDefaults.defaultTaxRate,
+      businessDefaultServiceRate: businessDefaults.defaultServiceRate,
       deliveryAmount,
     });
   }

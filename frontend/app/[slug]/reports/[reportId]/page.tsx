@@ -94,7 +94,8 @@ export default function ReportDetailPage({
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const { data: staff = [] } = useStaff();
   const { data: menuData } = useMenu();
-  const { data: selectedOrder } = useOrder(selectedOrderId ?? '');
+  const { data: selectedOrderRaw } = useOrder(selectedOrderId ?? '');
+  const selectedOrder = selectedOrderId ? selectedOrderRaw : undefined;
 
   const employeeOptions = useMemo(
     () => staff.map((s) => ({ value: s.id, label: s.name })),

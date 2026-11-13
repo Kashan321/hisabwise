@@ -7,6 +7,44 @@ const DEFAULT_SERVICE_RATE = 0;
 export const DEFAULT_TAX_RATE_PERCENT = DEFAULT_TAX_RATE * 100;
 export const DEFAULT_SERVICE_RATE_PERCENT = DEFAULT_SERVICE_RATE * 100;
 
+function parseRateDecimal(value: number | string | null | undefined): number {
+  if (value == null || value === '') return 0;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate < 0) return 0;
+  return rate;
+}
+
+export function businessServiceRatePercent(
+  business?: { defaultServiceRate?: number | string | null } | null,
+): number {
+  const rate = parseRateDecimal(business?.defaultServiceRate);
+  return Math.round(rate * 10000) / 100;
+}
+
+export function businessServiceRatePercentLabel(
+  business?: { defaultServiceRate?: number | string | null } | null,
+): string {
+  const percent = businessServiceRatePercent(business);
+  return Number.isInteger(percent) ? String(percent) : percent.toFixed(2);
+}
+
+/** Resolve service % from POS input; empty input uses tenant default (dine-in only). */
+export function resolveServiceRatePercent(
+  serviceRatePercentInput: string,
+  business?: { defaultServiceRate?: number | string | null } | null,
+  options?: { enabled?: boolean },
+): number {
+  if (options?.enabled === false) return 0;
+  const trimmed = serviceRatePercentInput.trim();
+  if (trimmed !== '') {
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.min(100, parsed) / 100;
+    }
+  }
+  return businessServiceRatePercent(business) / 100;
+}
+
 export function businessTaxRatePercent(
   business?: { defaultTaxRate?: number | string | null } | null,
 ): number {
@@ -103,6 +141,11 @@ export function formatPromotionLabel(promotion: Promotion, currency = 'USD'): st
       ? `${value}% off`
       : `${formatCurrency(value, currency)} off`;
   return `${promotion.title} · ${off}`;
+}
+
+/** Service charge applies to dine-in (and in-venue QR) orders only. */
+export function orderTypeUsesServiceCharge(orderType?: string | null): boolean {
+  return orderType === 'DINE_IN' || orderType === 'QR';
 }
 
 export function businessDeliveryCharge(

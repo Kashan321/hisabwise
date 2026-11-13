@@ -100,6 +100,7 @@ export interface OrderPricingPort {
   calculateAdditionalItems(
     businessId: string,
     input: AddOrderItemsInput,
+    orderType?: string,
   ): Promise<import('../entities/order.entity').OrderPricingResult>;
   recalculateExistingOrder(
     businessId: string,

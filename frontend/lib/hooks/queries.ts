@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api/client';
 import { DEFAULT_RECEIPT_TEMPLATE, mergeReceiptTemplate } from '@/lib/receipt/receipt-template';
 import { useAuth, useTenantQueryEnabled } from '@/lib/auth/auth-context';
@@ -85,8 +85,16 @@ export function useBusiness() {
   const enabled = useTenantQueryEnabled();
   return useQuery({
     queryKey: ['business', 'me'],
-    queryFn: () => apiFetch<{ business: Business }>('/business/me').then((d) => d.business),
+    queryFn: () =>
+      apiFetch<{ business: Business }>('/business/me').then((d) => ({
+        ...d.business,
+        defaultTaxRate: d.business.defaultTaxRate ?? 0,
+        defaultServiceRate: d.business.defaultServiceRate ?? 0,
+        defaultDeliveryCharge: d.business.defaultDeliveryCharge ?? 0,
+      })),
     enabled,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
@@ -692,10 +700,13 @@ export function useTableQr(tableId: string) {
 
 export function useOrder(id: string) {
   const tenantReady = useTenantQueryEnabled();
+  const enabled = tenantReady && !!id;
   return useQuery({
     queryKey: ['orders', id],
     queryFn: () => apiFetch<{ order: Order }>(`/orders/${id}`).then((d) => d.order),
-    enabled: tenantReady && !!id,
+    enabled,
+    /** Global keepPreviousData would attach a paid/closed order to New bill when id is cleared. */
+    placeholderData: enabled ? keepPreviousData : undefined,
   });
 }
 

@@ -17,6 +17,7 @@ export function OrderTakerSelectField({
   disabled,
   loading,
   compact,
+  billSidebarDense,
 }: {
   staff: StaffMember[];
   value: OrderTakerSelection;
@@ -27,6 +28,8 @@ export function OrderTakerSelectField({
   loading?: boolean;
   /** Single-row picker for POS/cart footers */
   compact?: boolean;
+  /** Even tighter row on short laptop bill sidebars */
+  billSidebarDense?: boolean;
 }) {
   const active = staff.filter((m) => m.isActive).sort((a, b) => a.name.localeCompare(b.name));
   const selectValue = orderTakerSelectValue(value);
@@ -63,14 +66,44 @@ export function OrderTakerSelectField({
   if (compact) {
     return (
       <div
-        className="rounded-lg border border-outline-variant/20 bg-surface-container-low/40 overflow-hidden"
+        className={`rounded-lg border border-outline-variant/20 bg-surface-container-low/40 overflow-hidden${
+          billSidebarDense
+            ? ' [@media(max-height:820px)_and_(min-width:1024px)]:rounded-md'
+            : ''
+        }`}
         title="Leave unset to use whoever is logged in"
       >
-        <label className="flex items-center gap-2 px-2.5 py-1 min-h-10 cursor-pointer">
-          <Icon name="person" className="text-lg text-on-surface-variant shrink-0" aria-hidden />
-          <span className="text-xs font-semibold text-on-surface-variant shrink-0">Order taker</span>
+        <label
+          className={`flex items-center gap-2 px-2.5 py-1 min-h-10 cursor-pointer${
+            billSidebarDense
+              ? ' [@media(max-height:820px)_and_(min-width:1024px)]:min-h-8 [@media(max-height:820px)_and_(min-width:1024px)]:gap-1.5 [@media(max-height:820px)_and_(min-width:1024px)]:px-2 [@media(max-height:820px)_and_(min-width:1024px)]:py-0.5'
+              : ''
+          }`}
+        >
+          <Icon
+            name="person"
+            className={`text-lg text-on-surface-variant shrink-0${
+              billSidebarDense
+                ? ' [@media(max-height:820px)_and_(min-width:1024px)]:text-base'
+                : ''
+            }`}
+            aria-hidden
+          />
+          <span
+            className={`text-xs font-semibold text-on-surface-variant shrink-0${
+              billSidebarDense
+                ? ' [@media(max-height:820px)_and_(min-width:1024px)]:text-[11px]'
+                : ''
+            }`}
+          >
+            Order taker
+          </span>
           <select
-            className="flex-1 min-w-0 h-9 bg-transparent text-sm font-medium text-on-surface border-0 outline-none cursor-pointer appearance-none pr-1"
+            className={`flex-1 min-w-0 h-9 bg-transparent text-sm font-medium text-on-surface border-0 outline-none cursor-pointer appearance-none pr-1${
+              billSidebarDense
+                ? ' [@media(max-height:820px)_and_(min-width:1024px)]:h-7 [@media(max-height:820px)_and_(min-width:1024px)]:text-xs'
+                : ''
+            }`}
             value={selectValue}
             disabled={disabled || loading}
             onChange={(e) => handleSelectChange(e.target.value)}

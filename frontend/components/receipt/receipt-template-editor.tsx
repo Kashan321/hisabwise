@@ -265,7 +265,9 @@ export function ReceiptTemplateEditor({
           rows={4}
           value={value.customerMetaFormat}
           disabled={disabled}
-          placeholder={'{orderNumber}\n{datetime}\n{table} | {orderType}\n{orderTaker}'}
+          placeholder={
+            '{orderNumber}\n{datetime}\n{orderTaker}\n{customerName}\n{customerPhone}\n{deliveryAddress}\n{deliveryNotes}'
+          }
           onChange={(e) => patch('customerMetaFormat', e.target.value)}
         />
       </div>

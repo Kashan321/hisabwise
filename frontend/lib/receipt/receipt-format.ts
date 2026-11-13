@@ -103,11 +103,18 @@ export function interpolateReceiptText(
   return pattern.replace(PLACEHOLDER_RE, (_, key: string) => ctx[key] ?? '');
 }
 
+function cleanupInterpolatedMetaLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return trimmed;
+  const parts = trimmed.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+  return parts.join(' | ');
+}
+
 /** Collapse lines that are empty after placeholder substitution. */
 export function renderFormatLines(pattern: string, ctx: ReceiptPlaceholderContext): string[] {
   return pattern
     .split(/\r?\n/)
-    .map((line) => interpolateReceiptText(line, ctx).trim())
+    .map((line) => cleanupInterpolatedMetaLine(interpolateReceiptText(line, ctx)))
     .filter(Boolean);
 }
 

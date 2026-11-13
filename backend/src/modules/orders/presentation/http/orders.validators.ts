@@ -83,6 +83,22 @@ export const createOrderSchema = z
         path: ['discountType'],
       });
     }
+    if (data.orderType === 'DELIVERY' && !(data.isDraft ?? false)) {
+      if (!data.customerName?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Customer name is required for delivery orders',
+          path: ['customerName'],
+        });
+      }
+      if (!data.customerPhone?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Customer phone is required for delivery orders',
+          path: ['customerPhone'],
+        });
+      }
+    }
   });
 
 export const addOrderItemsSchema = z.object({

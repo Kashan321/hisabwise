@@ -399,10 +399,12 @@ function buildReceiptContext(
   },
 ): ReceiptPlaceholderContext {
   const { date, time } = formatReceiptDateTime(order.createdAt);
+  const metaTableLabel =
+    order.orderType === 'DELIVERY' ? '' : input.tableLabel;
   const ctx = buildReceiptPlaceholderContext({
     order,
     template,
-    tableLabel: input.tableLabel,
+    tableLabel: metaTableLabel,
     businessName: input.businessName,
     addressLine: input.addressLine,
     phoneLine: input.phoneLine,
@@ -415,7 +417,11 @@ function buildReceiptContext(
     formatTime: () => time,
     formatMoney: (v) => money(v, input.currency),
   });
-  return applyPlaceholderVisibility(template, ctx);
+  const visible = applyPlaceholderVisibility(template, ctx);
+  if (order.orderType === 'DELIVERY') {
+    return { ...visible, table: '' };
+  }
+  return visible;
 }
 
 function renderCustomBlocksHtml(
@@ -462,7 +468,7 @@ function buildOrderMetaHtml(
       `<div class="order-datetime">${escapeHtml(date)}${escapeHtml(sep)}${escapeHtml(time)}</div>`,
     );
   }
-  if (template.showTableAndOrderType) {
+  if (template.showTableAndOrderType && order.orderType !== 'DELIVERY') {
     const tableLeft =
       labels.tablePrefix === ''
         ? escapeHtml(tableLabel)
@@ -484,6 +490,58 @@ function buildOrderMetaHtml(
   }
 
   return lines.join('');
+}
+
+const DELIVERY_CUSTOMER_PLACEHOLDER_RE =
+  /\{customerName\}|\{customerPhone\}|\{deliveryAddress\}|\{deliveryNotes\}/;
+
+function shouldAppendDeliveryCustomerMeta(template: ReceiptTemplate): boolean {
+  const customFormat = template.customerMetaFormat.trim();
+  if (!customFormat) return true;
+  return !DELIVERY_CUSTOMER_PLACEHOLDER_RE.test(customFormat);
+}
+
+function buildDeliveryCustomerDetailsHtml(
+  order: Order,
+  copyType: ReceiptCopyType,
+  template: ReceiptTemplate,
+): string {
+  if (copyType === 'kitchen' || order.orderType !== 'DELIVERY') return '';
+  if (!shouldAppendDeliveryCustomerMeta(template)) return '';
+
+  const name = order.customerName?.trim();
+  const phone = order.customerPhone?.trim();
+  const address = order.deliveryAddress?.trim();
+  const notes = order.deliveryNotes?.trim();
+  if (!name && !phone && !address && !notes) return '';
+
+  const rows: string[] = [];
+  if (name) {
+    rows.push(
+      `<div class="meta-line delivery-customer-line">Name: ${escapeHtml(name)}</div>`,
+    );
+  }
+  if (phone) {
+    rows.push(
+      `<div class="meta-line delivery-customer-line">Number: ${escapeHtml(phone)}</div>`,
+    );
+  }
+  if (address) {
+    rows.push(
+      `<div class="meta-line delivery-customer-line">Address: ${escapeHtml(address)}</div>`,
+    );
+  }
+  if (notes) {
+    rows.push(
+      `<div class="meta-line delivery-customer-line delivery-customer-notes">Notes: ${escapeHtml(notes)}</div>`,
+    );
+  }
+
+  return `<div class="rule"></div>
+  <section class="delivery-customer-details" aria-label="Customer details">
+    <div class="delivery-customer-heading">Customer details</div>
+    ${rows.join('')}
+  </section>`;
 }
 
 function buildCustomerFooter(order: Order, template: ReceiptTemplate): string {
@@ -653,6 +711,30 @@ function buildReceiptStyles(
       line-height: 1.35;
       color: #000;
       margin-bottom: 1px;
+    }
+    .delivery-customer-details {
+      margin: 4px 0 2px;
+      padding: 0;
+      width: 100%;
+    }
+    .delivery-customer-heading {
+      font-size: ${base}px;
+      font-weight: 800;
+      letter-spacing: 0.35px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      color: #000;
+      text-align: center;
+    }
+    .delivery-customer-line {
+      display: block;
+      justify-content: flex-start;
+      text-align: left;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .delivery-customer-notes {
+      font-style: italic;
     }
     .meta-row {
       font-size: ${base}px;
@@ -1186,6 +1268,11 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
       ${buildOrderMetaHtml(order, metaTableLabel, copyType, template, receiptCtx)}
     </section>
 
+<<<<<<< HEAD
+=======
+    ${buildDeliveryCustomerDetailsHtml(order, copyType, template)}
+
+>>>>>>> 3106597 (Implement POS delivery, receipt and billing updates)
     ${beforeItemsBlock}
 
     ${isKitchen ? '' : '<div class="rule"></div>'}

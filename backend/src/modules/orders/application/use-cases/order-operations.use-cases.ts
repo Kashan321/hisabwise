@@ -31,7 +31,13 @@ export class AddOrderItemsUseCase {
     input: AddOrderItemsInput,
     actor: { userId: string; userName?: string },
   ) {
-    const pricing = await this.pricingService.calculateAdditionalItems(businessId, input);
+    const existing = await this.orderRepository.findById(businessId, orderId);
+    if (!existing) throw new OrderNotFoundError();
+    const pricing = await this.pricingService.calculateAdditionalItems(
+      businessId,
+      input,
+      existing.orderType,
+    );
     const order = await this.orderRepository.addItems(businessId, orderId, pricing);
 
     emitDomainEvent('order.items_added', { orderId, businessId });

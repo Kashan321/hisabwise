@@ -167,7 +167,8 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
   });
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const { data: selectedOrder } = useOrder(selectedOrderId ?? '');
+  const { data: selectedOrderRaw } = useOrder(selectedOrderId ?? '');
+  const selectedOrder = selectedOrderId ? selectedOrderRaw : undefined;
   const { data: staff = [], isLoading: staffLoading } = useStaff();
   const showOrderTakerField = canAssignOrderTaker(user) && !selectedOrderId;
 

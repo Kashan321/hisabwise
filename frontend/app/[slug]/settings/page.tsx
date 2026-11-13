@@ -58,6 +58,7 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
   const [businessDayCloseReminderEnabled, setBusinessDayCloseReminderEnabled] = useState(true);
   const [defaultTaxRatePercent, setDefaultTaxRatePercent] = useState('0');
   const [defaultDeliveryCharge, setDefaultDeliveryCharge] = useState('0');
+  const [defaultServiceRatePercent, setDefaultServiceRatePercent] = useState('0');
   const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -90,6 +91,9 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
       String(Math.round(Number(business.defaultTaxRate ?? 0) * 10000) / 100),
     );
     setDefaultDeliveryCharge(String(Number(business.defaultDeliveryCharge ?? 0)));
+    setDefaultServiceRatePercent(
+      String(Math.round(Number(business.defaultServiceRate ?? 0) * 10000) / 100),
+    );
 
     if (business.currency) {
       setCurrency(business.currency);
@@ -186,6 +190,20 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
     try {
       await updateBusiness.mutateAsync({ defaultDeliveryCharge: amount });
       toast.success('Delivery charge updated');
+    } catch (err) {
+      toast.error(formatApiError(err));
+    }
+  }
+
+  async function handleSaveServiceRate() {
+    const percent = Number(defaultServiceRatePercent);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      toast.error('Enter a service rate between 0 and 100.');
+      return;
+    }
+    try {
+      await updateBusiness.mutateAsync({ defaultServiceRate: percent / 100 });
+      toast.success('Default service charge updated');
     } catch (err) {
       toast.error(formatApiError(err));
     }
@@ -400,6 +418,33 @@ export default function SettingsPage({ params }: { params: Promise<{ slug: strin
             onClick={handleSaveTaxRate}
           >
             Save tax rate
+          </Button>
+        </section>
+
+        <section className="p-6 rounded-2xl border-2 border-outline-variant/10 bg-white shadow-sm space-y-4">
+          <h3 className="font-title-lg text-primary">Service charge</h3>
+          <p className="font-body-base text-on-surface-variant text-sm">
+            Default percentage for dine-in orders (takeaway and delivery do not use service
+            charge). Staff can override it per order from the bill panel. Use 0 if you do not
+            charge service.
+          </p>
+          <Input
+            label="Default service charge (%)"
+            type="number"
+            min={0}
+            max={100}
+            step={0.01}
+            value={defaultServiceRatePercent}
+            onChange={(e) => setDefaultServiceRatePercent(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="primary"
+            className="cursor-pointer"
+            loading={updateBusiness.isPending}
+            onClick={handleSaveServiceRate}
+          >
+            Save service charge
           </Button>
         </section>
 

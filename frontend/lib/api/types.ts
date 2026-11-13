@@ -47,6 +47,7 @@ export interface Business {
   businessDayAutoCloseEnabled?: boolean;
   businessDayCloseReminderEnabled?: boolean;
   defaultTaxRate?: number | string;
+  defaultServiceRate?: number | string;
   defaultDeliveryCharge?: number | string;
 }
 

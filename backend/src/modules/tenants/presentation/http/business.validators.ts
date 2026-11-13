@@ -28,6 +28,7 @@ export const updateBusinessSchema = z.object({
   businessDayAutoCloseEnabled: z.boolean().optional(),
   businessDayCloseReminderEnabled: z.boolean().optional(),
   defaultTaxRate: z.number().min(0).max(1).optional(),
+  defaultServiceRate: z.number().min(0).max(1).optional(),
   defaultDeliveryCharge: z.number().min(0).max(1_000_000).optional(),
 });
 

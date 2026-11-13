@@ -702,6 +702,7 @@ export function useUpdateBusiness() {
       currency?: string | null;
       allowNegativeInventory?: boolean;
       defaultTaxRate?: number;
+      defaultServiceRate?: number;
       defaultDeliveryCharge?: number;
       orderTicketPrefix?: string;
       orderTicketResetDaily?: boolean;
@@ -733,6 +734,15 @@ export function useUpdateBusiness() {
         }
         if (variables.phone !== undefined) {
           merged.phone = variables.phone;
+        }
+        if (variables.defaultTaxRate !== undefined) {
+          merged.defaultTaxRate = variables.defaultTaxRate;
+        }
+        if (variables.defaultServiceRate !== undefined) {
+          merged.defaultServiceRate = variables.defaultServiceRate;
+        }
+        if (variables.defaultDeliveryCharge !== undefined) {
+          merged.defaultDeliveryCharge = variables.defaultDeliveryCharge;
         }
         return merged.id ? merged : fromApi ?? old;
       });

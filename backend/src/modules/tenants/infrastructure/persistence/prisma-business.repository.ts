@@ -27,6 +27,7 @@ function mapBusiness(business: {
   businessDayAutoCloseEnabled: boolean;
   businessDayCloseReminderEnabled: boolean;
   defaultTaxRate: { toString(): string };
+  defaultServiceRate: { toString(): string };
   defaultDeliveryCharge: { toString(): string };
   createdAt: Date;
 }): BusinessEntity {
@@ -53,8 +54,9 @@ function mapBusiness(business: {
     businessDayTimezone: business.businessDayTimezone,
     businessDayAutoCloseEnabled: business.businessDayAutoCloseEnabled,
     businessDayCloseReminderEnabled: business.businessDayCloseReminderEnabled,
-    defaultTaxRate: Number(business.defaultTaxRate),
-    defaultDeliveryCharge: Number(business.defaultDeliveryCharge),
+    defaultTaxRate: Number(business.defaultTaxRate ?? 0),
+    defaultServiceRate: Number(business.defaultServiceRate ?? 0),
+    defaultDeliveryCharge: Number(business.defaultDeliveryCharge ?? 0),
     createdAt: business.createdAt,
   };
 }
