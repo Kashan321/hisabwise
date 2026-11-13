@@ -1815,11 +1815,6 @@ export function PosOrderScreen({
 
   function validateDeliveryDetails(): boolean {
     if (orderMode !== 'DELIVERY') return true;
-    if (!deliveryAddress.trim()) {
-      toast.error('Enter a delivery address.');
-      setCartOpen(true);
-      return false;
-    }
     if (!customerName.trim()) {
       toast.error('Enter the customer name for delivery.');
       openMobileBillDrawer();
@@ -2347,7 +2342,7 @@ export function PosOrderScreen({
               </div>
               <Input
                 dense
-                label="Address"
+                label="Address (optional)"
                 value={deliveryAddress}
                 onChange={(e) => {
                   detachCustomerLink();

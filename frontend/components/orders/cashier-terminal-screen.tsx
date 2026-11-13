@@ -421,10 +421,6 @@ export function CashierTerminalScreen({ slug }: { slug: string }) {
 
   function validateDeliveryDetails(): boolean {
     if (orderMode !== 'DELIVERY') return true;
-    if (!deliveryAddress.trim()) {
-      toast.error('Enter a delivery address.');
-      return false;
-    }
     if (!customerName.trim()) {
       toast.error('Enter the customer name for delivery.');
       return false;

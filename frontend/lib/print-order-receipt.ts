@@ -1268,11 +1268,8 @@ function buildReceiptHtml(order: Order, options: PrintReceiptOptions, autoPrint:
       ${buildOrderMetaHtml(order, metaTableLabel, copyType, template, receiptCtx)}
     </section>
 
-<<<<<<< HEAD
-=======
     ${buildDeliveryCustomerDetailsHtml(order, copyType, template)}
 
->>>>>>> 3106597 (Implement POS delivery, receipt and billing updates)
     ${beforeItemsBlock}
 
     ${isKitchen ? '' : '<div class="rule"></div>'}
