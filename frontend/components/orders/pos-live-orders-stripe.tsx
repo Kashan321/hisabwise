@@ -16,6 +16,8 @@ import { usePosLiveOrders } from '@/lib/hooks/queries';
 import { useFormatMoney } from '@/lib/hooks/use-business-currency';
 import { formatOrderLabel, formatOrderShortLabel } from '@/lib/order-display';
 import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
+import type { OfflineLocalOrderOps } from '@/lib/offline/offline-local-order-ops';
+import { isDeviceLocalOrder, isOfflineLocalOrderId } from '@/lib/offline/local-orders';
 import { receiptPrintPhoneOptions } from '@/lib/business-phones';
 import { printOrderReceipt } from '@/lib/print-order-receipt';
 import { useToast } from '@/lib/toast';
@@ -42,6 +44,8 @@ export function PosLiveOrdersStripe({
   unpunchedDraftCounts = {},
   onOrderCompleted,
   onSelectOrder,
+  extraOrders = [],
+  offlineOrderOps,
 }: {
   slug: string;
   tableMap: Record<string, string>;
@@ -54,6 +58,9 @@ export function PosLiveOrdersStripe({
   /** After payment + mark completed (e.g. Deliver on READY). */
   onOrderCompleted?: (order: Order) => void;
   onSelectOrder?: (order: Order) => void;
+  /** Active bills stored on device while offline (merged with API list). */
+  extraOrders?: Order[];
+  offlineOrderOps?: OfflineLocalOrderOps;
 }) {
   const toast = useToast();
   const formatMoney = useFormatMoney();
@@ -70,13 +77,20 @@ export function PosLiveOrdersStripe({
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const orders = useMemo(
-    () =>
-      (data?.orders ?? [])
-        .filter((o) => !o.isDraft)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [data?.orders],
-  );
+  const [localBusyOrderId, setLocalBusyOrderId] = useState<string | null>(null);
+
+  const orders = useMemo(() => {
+    const byId = new Map<string, Order>();
+    for (const order of data?.orders ?? []) {
+      if (!order.isDraft) byId.set(order.id, order);
+    }
+    for (const order of extraOrders) {
+      if (!order.isDraft && !byId.has(order.id)) byId.set(order.id, order);
+    }
+    return [...byId.values()].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+  }, [data?.orders, extraOrders]);
 
   const newestOrderId = orders[orders.length - 1]?.id;
 
@@ -151,6 +165,15 @@ export function PosLiveOrdersStripe({
       });
       return;
     }
+    if (offlineOrderOps && isDeviceLocalOrder(order)) {
+      setLocalBusyOrderId(order.id);
+      void offlineOrderOps
+        .advanceStatus(order)
+        .then(() => toast.success('Order updated'))
+        .catch((err) => toast.error(formatApiError(err)))
+        .finally(() => setLocalBusyOrderId(null));
+      return;
+    }
     updateStatus.mutate(
       { id: order.id, status: next },
       {
@@ -166,6 +189,20 @@ export function PosLiveOrdersStripe({
 
   function confirmCompleteWithPayment(payload: CompleteOrderPaymentPayload) {
     if (!paymentModal) return;
+    const payTarget = orders.find((o) => o.id === paymentModal.orderId);
+    if (offlineOrderOps && payTarget && isDeviceLocalOrder(payTarget)) {
+      setLocalBusyOrderId(paymentModal.orderId);
+      void offlineOrderOps
+        .completeWithPayment(paymentModal.orderId, payload)
+        .then((order) => {
+          toast.success('Order completed');
+          setPaymentModal(null);
+          onOrderCompleted?.(order);
+        })
+        .catch((err) => toast.error(formatApiError(err)))
+        .finally(() => setLocalBusyOrderId(null));
+      return;
+    }
     updateStatus.mutate(
       {
         id: paymentModal.orderId,
@@ -187,6 +224,19 @@ export function PosLiveOrdersStripe({
 
   function confirmCancel() {
     if (!cancelOrderId) return;
+    const cancelLocal = orders.find((o) => o.id === cancelOrderId);
+    if (offlineOrderOps && cancelLocal && isDeviceLocalOrder(cancelLocal)) {
+      setLocalBusyOrderId(cancelOrderId);
+      void offlineOrderOps
+        .cancel(cancelOrderId)
+        .then(() => {
+          toast.success('Order cancelled');
+          setCancelOrderId(null);
+        })
+        .catch((err) => toast.error(formatApiError(err)))
+        .finally(() => setLocalBusyOrderId(null));
+      return;
+    }
     updateStatus.mutate(
       { id: cancelOrderId, status: 'CANCELLED' },
       {
@@ -230,7 +280,8 @@ export function PosLiveOrdersStripe({
             {orders.map((order) => {
               const action = orderActionLabel(order.status);
               const isStatusBusy =
-                updateStatus.isPending && updateStatus.variables?.id === order.id;
+                (updateStatus.isPending && updateStatus.variables?.id === order.id) ||
+                localBusyOrderId === order.id;
               const isPrintBusy = busy?.orderId === order.id && busy.type === 'print';
               const table = tableLabel(order);
               const isSelected = selectedOrderId === order.id;
@@ -341,7 +392,11 @@ export function PosLiveOrdersStripe({
         onClose={() => setPaymentModal(null)}
         orderLabel={paymentModal?.label ?? ''}
         totalAmount={paymentModal?.total ?? 0}
-        loading={updateStatus.isPending}
+        loading={updateStatus.isPending || !!localBusyOrderId}
+        cashOnly={
+          !!paymentModal &&
+          !!orders.find((o) => o.id === paymentModal.orderId && isDeviceLocalOrder(o))
+        }
         onConfirm={confirmCompleteWithPayment}
       />
     </>

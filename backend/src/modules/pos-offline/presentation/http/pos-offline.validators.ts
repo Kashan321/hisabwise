@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
+  addOrderItemsSchema,
   applyCreateOrderRefinements,
   createOrderObjectSchema,
+  orderStatusEnum,
 } from '../../../orders/presentation/http/orders.validators';
 
 export const registerPosDeviceSchema = z.object({
@@ -22,6 +24,9 @@ export const syncOfflineOrderEntrySchema = createOrderObjectSchema
     offlineTicketLabel: z.string().trim().max(32).optional(),
     completeWithCash: offlineCashCompletionSchema.optional(),
     snapshotLineUnitPrices: z.record(z.string().uuid(), z.string()).optional(),
+    itemUpdates: z.array(addOrderItemsSchema).optional(),
+    /** Final non-completed status from the device when the bill is still open locally. */
+    offlineOrderStatus: orderStatusEnum.optional(),
   })
   .superRefine((data, ctx) => {
     applyCreateOrderRefinements(data, ctx);

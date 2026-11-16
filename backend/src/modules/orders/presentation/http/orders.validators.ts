@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const orderSourceEnum = z.enum(['QR_CUSTOMER', 'STAFF_ASSISTED', 'ONLINE_DELIVERY']);
 const orderTypeEnum = z.enum(['DINE_IN', 'TAKEAWAY', 'DELIVERY', 'QR']);
-const orderStatusEnum = z.enum(['RECEIVED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED']);
+export const orderStatusEnum = z.enum(['RECEIVED', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED']);
 const deliveryStatusEnum = z.enum(['ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED']);
 const changeRequestTypeEnum = z.enum(['CANCEL_ORDER', 'REMOVE_ITEM', 'MODIFY_ITEM']);
 export const paymentMethodEnum = z.enum(['CASH', 'CARD', 'BANK_TRANSFER', 'WALLET', 'ONLINE', 'OTHER']);

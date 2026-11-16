@@ -34,8 +34,17 @@ import {
 import { useNetworkStatus } from '@/lib/hooks/use-network-status';
 import { useOfflinePos } from '@/components/offline/offline-pos-provider';
 import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
-import { enqueueOfflineCheckout } from '@/lib/offline/pos-checkout';
-import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
+import {
+  addItemsToLocalOrder,
+  advanceLocalOrderStatus,
+  cancelLocalOrder,
+  completeLocalOrderPayment,
+  getLocalOrderById,
+  isOfflineLocalOrderId,
+  placeOfflineOrder,
+} from '@/lib/offline/local-orders';
+import { useOfflineActiveOrders } from '@/lib/hooks/use-offline-local-orders';
+import type { OfflineLocalOrderOps } from '@/lib/offline/offline-local-order-ops';
 import {
   isNetworkFailureError,
   isPosEffectivelyOffline,
@@ -893,10 +902,6 @@ export function PosOrderScreen({
     orderType: 'DINE_IN',
     limit: 200,
   });
-  const activeOrderByTable = useMemo(
-    () => buildActiveOrderByTable(dineInOrdersData?.orders ?? []),
-    [dineInOrdersData?.orders],
-  );
   const queryClient = useQueryClient();
   const { data: customers = [] } = useCustomers();
   const { data: promotions = [] } = usePromotions(true);
@@ -922,16 +927,25 @@ export function PosOrderScreen({
   const createOrder = useCreateOrder();
   const network = useNetworkStatus();
   const offlinePos = useOfflinePos();
-  const [offlineCheckoutOpen, setOfflineCheckoutOpen] = useState(false);
-  const [offlineCheckoutItems, setOfflineCheckoutItems] = useState<
-    Array<{
-      menuItemId: string;
-      quantity: number;
-      variantId?: string;
-      weightG?: number;
-      modifierOptionIds?: string[];
-    }> | null
-  >(null);
+  const { orders: offlineActiveOrders, refresh: refreshOfflineActiveOrders } =
+    useOfflineActiveOrders(offlinePos.scopeKey);
+  const activeOrderByTable = useMemo(
+    () =>
+      buildActiveOrderByTable([
+        ...(dineInOrdersData?.orders ?? []),
+        ...offlineActiveOrders.filter((order) => order.orderType === 'DINE_IN' && order.tableId),
+      ]),
+    [dineInOrdersData?.orders, offlineActiveOrders],
+  );
+  const offlineOrderOps = useMemo((): OfflineLocalOrderOps | undefined => {
+    if (!offlinePos.scopeKey) return undefined;
+    const scopeKey = offlinePos.scopeKey;
+    return {
+      advanceStatus: (order) => advanceLocalOrderStatus(scopeKey, order.id),
+      completeWithPayment: (orderId, payload) => completeLocalOrderPayment(scopeKey, orderId, payload),
+      cancel: (orderId) => cancelLocalOrder(scopeKey, orderId),
+    };
+  }, [offlinePos.scopeKey]);
   const checkoutInFlightRef = useRef(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
@@ -948,7 +962,34 @@ export function PosOrderScreen({
   const heldOrderId = searchParams.get('heldOrderId');
   const showOrderTakerField =
     !waiterMode && canAssignOrderTaker(user) && !existingOrderId && !heldOrderId;
-  const { data: existingOrder } = useOrder(existingOrderId ?? '');
+  const skipApiOrderFetch = isPosEffectivelyOffline({
+    apiReachability: offlinePos.apiReachability,
+    browserOnline: network.online,
+  });
+  const { data: existingOrderFromApi } = useOrder(
+    existingOrderId && !isOfflineLocalOrderId(existingOrderId) && !skipApiOrderFetch
+      ? existingOrderId
+      : '',
+  );
+  const [localExistingOrder, setLocalExistingOrder] = useState<Order | null>(null);
+  useEffect(() => {
+    if (!existingOrderId || !offlinePos.scopeKey) {
+      setLocalExistingOrder(null);
+      return;
+    }
+    void getLocalOrderById(offlinePos.scopeKey, existingOrderId).then(setLocalExistingOrder);
+    const onQueueChange = () => {
+      void getLocalOrderById(offlinePos.scopeKey!, existingOrderId).then(setLocalExistingOrder);
+      void refreshOfflineActiveOrders();
+    };
+    window.addEventListener('hisabwise:offline-queue-changed', onQueueChange);
+    return () => window.removeEventListener('hisabwise:offline-queue-changed', onQueueChange);
+  }, [existingOrderId, offlinePos.scopeKey, refreshOfflineActiveOrders]);
+  const existingOrder = localExistingOrder ?? existingOrderFromApi;
+  useEffect(() => {
+    if (!existingOrderId || !localExistingOrder) return;
+    queryClient.setQueryData(['orders', existingOrderId], localExistingOrder);
+  }, [existingOrderId, localExistingOrder, queryClient]);
   const { data: heldOrder } = useOrder(heldOrderId ?? '');
   const { data: heldOrdersData } = useHeldOrders();
   const heldOrderCount = heldOrdersData?.orders.length ?? 0;
@@ -1979,50 +2020,7 @@ export function PosOrderScreen({
     });
   }
 
-  async function confirmOfflineCashCheckout(payload: CompleteOrderPaymentPayload) {
-    if (!offlinePos.scopeKey || !offlineCheckoutItems?.length) return;
-    if (checkoutInFlightRef.current) return;
-    checkoutInFlightRef.current = true;
-    setCheckoutBusy(true);
-    setCheckoutMessage('Saving offline order on this device…');
-    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
-    try {
-      const createPayload = buildCreateOrderPayload(offlineCheckoutItems, false);
-      const { receiptOrder } = await enqueueOfflineCheckout({
-        scopeKey: offlinePos.scopeKey,
-        idempotencyKey,
-        createPayload,
-        pricing: {
-          subtotal: pricing.subtotal,
-          taxAmount: pricing.taxAmount,
-          serviceAmount: pricing.serviceAmount,
-          totalAmount: pricing.totalAmount,
-        },
-        orderType: orderMode,
-        payment: payload,
-        receiptItems: buildReceiptItemsFromCart(offlineCheckoutItems),
-        snapshotLineUnitPrices: buildSnapshotLineUnitPrices(offlineCheckoutItems),
-        notes: 'OFFLINE — pending sync',
-      });
-      resetCheckoutIdempotencyKey(slug);
-      setOfflineCheckoutOpen(false);
-      setOfflineCheckoutItems(null);
-      toast.success(`Offline order ${receiptOrder.ticketLabel} saved — will sync when online`);
-      printPunchedBill({
-        ...receiptOrder,
-        notes: 'OFFLINE — pending sync',
-      });
-      clearOrder();
-    } catch (err) {
-      toast.error(formatApiError(err) || 'Could not save offline order.');
-    } finally {
-      checkoutInFlightRef.current = false;
-      setCheckoutBusy(false);
-      setCheckoutMessage(null);
-    }
-  }
-
-  async function beginOfflineCashCheckout(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
+  async function submitOfflineNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
     if (asDraft || waiterMode) {
       toast.error('Held or waiter draft orders are not available offline.');
       return;
@@ -2040,8 +2038,39 @@ export function PosOrderScreen({
       toast.error('Menu not cached yet. Open New Order once while online, then try again.');
       return;
     }
-    setOfflineCheckoutItems(items);
-    setOfflineCheckoutOpen(true);
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
+    setCheckoutBusy(true);
+    setCheckoutMessage('Saving order on this device…');
+    const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
+    try {
+      const createPayload = buildCreateOrderPayload(items, false);
+      const tableIdentifier = tableId ? tableMap[tableId] ?? null : null;
+      const { order } = await placeOfflineOrder({
+        scopeKey: offlinePos.scopeKey,
+        idempotencyKey,
+        createPayload,
+        pricing: {
+          subtotal: pricing.subtotal,
+          taxAmount: pricing.taxAmount,
+          serviceAmount: pricing.serviceAmount,
+          totalAmount: pricing.totalAmount,
+        },
+        orderType: orderMode,
+        receiptItems: buildReceiptItemsFromCart(items),
+        snapshotLineUnitPrices: buildSnapshotLineUnitPrices(items),
+        tableIdentifier,
+        notes: orderNotes.trim() || undefined,
+      });
+      await processNewOrderSuccess({ order, idempotentReplay: false }, false);
+      void refreshOfflineActiveOrders();
+    } catch (err) {
+      toast.error(formatApiError(err) || 'Could not save offline order.');
+    } finally {
+      checkoutInFlightRef.current = false;
+      setCheckoutBusy(false);
+      setCheckoutMessage(null);
+    }
   }
 
   async function submitNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
@@ -2054,7 +2083,7 @@ export function PosOrderScreen({
     });
 
     if (effectivelyOffline) {
-      await beginOfflineCashCheckout(items, asDraft);
+      await submitOfflineNewOrder(items, asDraft);
       return;
     }
 
@@ -2072,11 +2101,11 @@ export function PosOrderScreen({
       const mayRetryOffline = offlinePos.scopeKey && !waiterMode && !asDraft && orderMode !== 'DELIVERY';
       const networkFailed = !browserOnline || isNetworkFailureError(err);
       if (mayRetryOffline && networkFailed) {
-        await beginOfflineCashCheckout(items, asDraft);
+        await submitOfflineNewOrder(items, asDraft);
         return;
       }
       if (!browserOnline) {
-        await beginOfflineCashCheckout(items, asDraft);
+        await submitOfflineNewOrder(items, asDraft);
         return;
       }
       toast.error(formatApiError(err) || 'Unable to confirm order. Please retry safely.');
@@ -2099,6 +2128,45 @@ export function PosOrderScreen({
     const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
 
     if (existingOrderId) {
+      const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
+      const effectivelyOffline = isPosEffectivelyOffline({
+        apiReachability: offlinePos.apiReachability,
+        browserOnline,
+      });
+      if (effectivelyOffline && offlinePos.scopeKey) {
+        const scopeKey = offlinePos.scopeKey;
+        void getLocalOrderById(scopeKey, existingOrderId).then((localOrder) => {
+          if (!localOrder) {
+            toast.error('Open bill not found on this device.');
+            return;
+          }
+          return addItemsToLocalOrder({
+          scopeKey,
+          orderId: existingOrderId,
+          items,
+          receiptItems: buildReceiptItemsFromCart(items),
+          pricing: {
+            subtotal: combinedBillPricing.subtotal,
+            taxAmount: combinedBillPricing.taxAmount,
+            serviceAmount: combinedBillPricing.serviceAmount,
+            totalAmount: combinedBillPricing.totalAmount,
+          },
+          taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
+          serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+        })
+            .then(() => {
+              toast.success('Items added to order');
+              clearOrderAddDraft(slug, existingOrderId);
+              syncAddDraftCounts();
+              setCart({});
+              setCartOpen(false);
+              void refreshOfflineActiveOrders();
+              router.replace(newBillHref);
+            })
+            .catch((err) => toast.error(formatApiError(err)));
+        });
+        return;
+      }
       addOrderItems.mutate(
         {
           orderId: existingOrderId,
@@ -3035,6 +3103,8 @@ export function PosOrderScreen({
               currency={currency}
               selectedOrderId={existingOrderId}
               unpunchedDraftCounts={addDraftCounts}
+              extraOrders={offlineActiveOrders}
+              offlineOrderOps={offlineOrderOps}
               onOrderCompleted={(order) =>
                 queuePrintBillPrompt(
                   order,
@@ -3246,26 +3316,6 @@ export function PosOrderScreen({
         </div>
       </Drawer>
       {PrintBillPrompt}
-
-      <CompleteOrderPaymentModal
-        open={offlineCheckoutOpen}
-        onClose={() => {
-          if (checkoutBusy) return;
-          setOfflineCheckoutOpen(false);
-          setOfflineCheckoutItems(null);
-        }}
-        orderLabel="Offline cash sale"
-        totalAmount={pricing.totalAmount}
-        loading={checkoutBusy}
-        cashOnly
-        onConfirm={(payload) => {
-          if (payload.paymentMethod && payload.paymentMethod !== 'CASH') {
-            toast.error('Only cash payments are available offline.');
-            return;
-          }
-          void confirmOfflineCashCheckout(payload);
-        }}
-      />
 
       <ConfirmDialog
         open={!!pendingBusyTableId}

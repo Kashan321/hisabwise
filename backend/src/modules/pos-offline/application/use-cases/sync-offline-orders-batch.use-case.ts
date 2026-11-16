@@ -15,6 +15,10 @@ export type SyncOfflineOrderResult = {
   error?: string;
 };
 
+type OrderStatus = 'RECEIVED' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED';
+
+const STATUS_FLOW: OrderStatus[] = ['RECEIVED', 'PREPARING', 'READY', 'COMPLETED'];
+
 function formatTicketLabel(prefix: string | null | undefined, number: number | null | undefined) {
   if (number == null) return null;
   return prefix ? `${prefix}-${String(number).padStart(3, '0')}` : String(number);
@@ -64,6 +68,24 @@ async function completeWithCash(
   );
 }
 
+async function advanceOpenOrderStatus(
+  businessId: string,
+  orderId: string,
+  actorId: string,
+  target: OrderStatus,
+) {
+  const targetIndex = STATUS_FLOW.indexOf(target);
+  if (targetIndex < 0) return;
+  let order = await ordersModule.getOrder.execute(businessId, orderId);
+  if (!order) return;
+  while (order && order.status !== target && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
+    const currentIndex = STATUS_FLOW.indexOf(order.status as OrderStatus);
+    const next = STATUS_FLOW[currentIndex + 1];
+    if (!next || STATUS_FLOW.indexOf(next) > targetIndex) break;
+    order = await ordersModule.updateOrderStatus.execute(businessId, orderId, next, undefined, actorId);
+  }
+}
+
 export class SyncOfflineOrdersBatchUseCase {
   async execute(
     businessId: string,
@@ -93,14 +115,24 @@ export class SyncOfflineOrdersBatchUseCase {
           }
         }
 
-        const input: CreateOrderInput = {
-          ...item,
-          createdById: actorId,
-          isDraft: item.isDraft ?? false,
-        };
+        let order =
+          (await ordersModule.getOrderByIdempotencyKey.execute(businessId, item.idempotencyKey)) ??
+          null;
+        let idempotentReplay = false;
 
-        const created = await ordersModule.createOrder.execute(businessId, input);
-        let order = created.order;
+        if (!order) {
+          const input: CreateOrderInput = {
+            ...item,
+            createdById: actorId,
+            isDraft: item.isDraft ?? false,
+          };
+          const created = await ordersModule.createOrder.execute(businessId, input);
+          order = created.order;
+          idempotentReplay = created.idempotentReplay;
+        } else {
+          idempotentReplay = true;
+        }
+
         const pricedLines = (order.items ?? [])
           .filter((line) => line.menuItemId)
           .map((line) => ({
@@ -120,6 +152,15 @@ export class SyncOfflineOrdersBatchUseCase {
           });
         }
 
+        for (const update of item.itemUpdates ?? []) {
+          order = await ordersModule.addOrderItems.execute(
+            businessId,
+            order.id,
+            update,
+            { userId: actorId },
+          );
+        }
+
         if (item.completeWithCash && order.status !== 'COMPLETED' && !order.isDraft) {
           order = await completeWithCash(
             businessId,
@@ -128,6 +169,10 @@ export class SyncOfflineOrdersBatchUseCase {
             Number(order.totalAmount),
             item.completeWithCash,
           );
+        } else if (item.offlineOrderStatus && item.offlineOrderStatus !== 'COMPLETED') {
+          await advanceOpenOrderStatus(businessId, order.id, actorId, item.offlineOrderStatus);
+          const refreshed = await ordersModule.getOrder.execute(businessId, order.id);
+          if (refreshed) order = refreshed;
         } else if (conflictFlags || item.offlineTicketLabel || posDeviceId) {
           const refreshed = await ordersModule.getOrder.execute(businessId, order.id);
           if (refreshed) order = refreshed;
@@ -136,7 +181,7 @@ export class SyncOfflineOrdersBatchUseCase {
         results.push({
           ...base,
           success: true,
-          idempotentReplay: created.idempotentReplay,
+          idempotentReplay,
           orderId: order.id,
           serverTicketLabel: formatTicketLabel(order.ticketPrefix, order.ticketNumber),
           syncConflictFlags: (conflictFlags as Record<string, unknown>) ?? null,

@@ -2,6 +2,14 @@ import Dexie, { type Table } from 'dexie';
 import type { Business, MenuCategory, Order } from '@/lib/api/types';
 
 export type OfflineSyncStatus = 'pending' | 'syncing' | 'synced' | 'error';
+export type OfflineOrderLifecycle = 'open' | 'completed' | 'cancelled';
+
+export interface OfflineItemUpdateRecord {
+  appliedAt: string;
+  items: Array<Record<string, unknown>>;
+  taxRate?: number;
+  serviceRate?: number;
+}
 
 export interface OfflineSnapshotRecord {
   scopeKey: string;
@@ -24,7 +32,13 @@ export interface PendingOfflineOrderRecord {
   offlineTicketLabel: string;
   offlineTicketNumber: number;
   createdAt: string;
-  payload: Record<string, unknown>;
+  /** Initial punch payload (no payment). */
+  createPayload?: Record<string, unknown>;
+  itemUpdates?: OfflineItemUpdateRecord[];
+  completeWithCash?: { amountReceived?: number; changeGiven?: number };
+  lifecycle?: OfflineOrderLifecycle;
+  /** @deprecated legacy combined payload — migrated on read */
+  payload?: Record<string, unknown>;
   receiptOrder: Order;
   serverTicketLabel?: string;
   serverOrderId?: string;

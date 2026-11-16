@@ -71,6 +71,8 @@ async function swAndCacheState(page) {
 }
 
 async function clickBurger(page) {
+  await page.keyboard.press('Escape').catch(() => undefined);
+  await page.waitForTimeout(300);
   await page.getByText('Burger').first().waitFor({ state: 'visible', timeout: 60_000 });
   const card = page.locator('button').filter({ hasText: 'Burger' }).first();
   if (await card.count()) {
@@ -80,19 +82,73 @@ async function clickBurger(page) {
   await page.getByText('$10.00').first().click({ timeout: 15_000 });
 }
 
-async function placeCashOrder(page) {
+async function punchOfflineOrder(page) {
   await clickBurger(page);
   await page.waitForTimeout(400);
-  const place = page.getByRole('button', { name: /place order/i });
-  await place.click({ timeout: 20_000 });
-  const modal = page.getByRole('dialog');
-  await modal.waitFor({ state: 'visible', timeout: 20_000 });
-  const badText = page.getByText(/checkout status is being checked|Internet connection lost/i);
-  if (await badText.count()) {
-    throw new Error('Checkout status banner shown');
+  await page.getByRole('button', { name: /place order/i }).click({ timeout: 20_000 });
+  await page.getByText(/punched/i).first().waitFor({ state: 'visible', timeout: 30_000 });
+  const modalPay = page.getByRole('dialog');
+  if (await modalPay.count()) {
+    throw new Error('Payment modal appeared on punch — order should stay open');
   }
+  const newBill = page.getByRole('button', { name: /^New bill$/i });
+  if (await newBill.count()) await newBill.click();
+  await page.waitForTimeout(600);
+}
+
+async function firstOpenBill(page) {
+  return page.locator('[data-order-id]').first();
+}
+
+async function payOpenBillCash(page) {
+  for (const label of ['Prep', 'Ready', 'Deliver']) {
+    const card = page.locator('[data-order-id]').filter({ hasText: /received|preparing|ready/i }).first();
+    await card.waitFor({ state: 'visible', timeout: 15_000 });
+    await card.getByRole('button', { name: label }).click({ timeout: 15_000 });
+    await page.waitForTimeout(800);
+  }
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor({ state: 'visible', timeout: 15_000 });
   await page.getByRole('button', { name: /^Done ·/i }).click({ timeout: 15_000 });
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1200);
+}
+
+async function editOpenBillAddBurger(page) {
+  const card = await firstOpenBill(page);
+  const addLink = card.getByText('Add', { exact: true });
+  if (await addLink.count()) {
+    await addLink.click();
+  } else {
+    await card.click();
+  }
+  await page.waitForURL(/orderId=/, { timeout: 20_000 });
+  await page.waitForTimeout(2500);
+  await clickBurger(page);
+  await page.getByRole('button', { name: /add to order/i }).click({ timeout: 20_000 });
+  await page.getByText(/Items added to order/i).waitFor({ state: 'visible', timeout: 20_000 });
+  await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1200);
+}
+
+async function localOrderStates(page) {
+  return page.evaluate(() => new Promise((resolve) => {
+    const open = indexedDB.open('hisabwise-offline-pos');
+    open.onsuccess = () => {
+      const tx = open.result.transaction('pendingOrders', 'readonly');
+      tx.objectStore('pendingOrders').getAll().onsuccess = (e) => {
+        const rows = e.target.result ?? [];
+        resolve(
+          rows.map((r) => ({
+            lifecycle: r.lifecycle ?? (r.receiptOrder?.status === 'COMPLETED' ? 'completed' : 'open'),
+            status: r.receiptOrder?.status,
+            itemUpdates: (r.itemUpdates ?? []).length,
+            lineCount: (r.receiptOrder?.items ?? []).length,
+          })),
+        );
+      };
+    };
+    open.onerror = () => resolve([]);
+  }));
 }
 
 async function pendingCount(page) {
@@ -140,6 +196,14 @@ async function main() {
   const page = await context.newPage();
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
   await page.evaluate(
+    () => new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase('hisabwise-offline-pos');
+      req.onsuccess = () => resolve(undefined);
+      req.onerror = () => resolve(undefined);
+      req.onblocked = () => resolve(undefined);
+    }),
+  );
+  await page.evaluate(
     ({ accessToken, slug }) => {
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('lastBusinessSlug', slug);
@@ -182,21 +246,55 @@ async function main() {
   await context.setOffline(true);
   await page.waitForTimeout(1500);
 
-  // Step 2 — offline checkout (no reload)
+  // Step 2 — offline punch (open bill, not completed)
   try {
-    await placeCashOrder(page);
-    const banner = await page.getByText(/offline mode/i).count();
-    const bad = await page.getByText(/checkout status is being checked/i).count();
-    await shot(page, 'e2e-02-offline-order-1.png');
-    const pending = await pendingCount(page);
-    record(
-      '2 offline cash order (in session)',
-      banner > 0 && bad === 0 && pending >= 1,
-      `banner=${banner} pending=${pending}`,
-    );
+    await punchOfflineOrder(page);
+    const card = await firstOpenBill(page);
+    const statusText = (await card.textContent()) ?? '';
+    const openBillOk = /received/i.test(statusText);
+    const states = await localOrderStates(page);
+    const openOk = states.some((s) => s.status === 'RECEIVED' && s.lifecycle !== 'completed');
+    await shot(page, 'e2e-02-offline-punch-open.png');
+    record('2 offline punch stays RECEIVED in open bills', openBillOk && openOk, JSON.stringify(states));
   } catch (e) {
     await shot(page, 'e2e-02-offline-order-1-FAIL.png');
-    record('2 offline cash order (in session)', false, String(e));
+    record('2 offline punch stays RECEIVED', false, String(e));
+  }
+
+  try {
+    await editOpenBillAddBurger(page);
+    const afterEdit = await localOrderStates(page);
+    const edited = afterEdit.some((s) => (s.itemUpdates ?? 0) >= 1 || (s.lineCount ?? 0) >= 2);
+    await shot(page, 'e2e-02b-offline-edit-bill.png');
+    record('2b offline edit bill (add items)', edited, JSON.stringify(afterEdit));
+  } catch (e) {
+    await shot(page, 'e2e-02b-offline-edit-bill-FAIL.png');
+    record('2b offline edit bill (add items)', false, String(e));
+  }
+
+  try {
+    await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(800);
+    await payOpenBillCash(page);
+    const afterPay = await localOrderStates(page);
+    const paid = afterPay.some((s) => s.status === 'COMPLETED' && s.lifecycle === 'completed');
+    await shot(page, 'e2e-02c-offline-payment.png');
+    const pending = await pendingCount(page);
+    record('2c offline pay completes bill', paid && pending >= 1, JSON.stringify(afterPay));
+
+    await punchOfflineOrder(page);
+    const statesOpen2 = await localOrderStates(page);
+    const hasOpen = statesOpen2.some((s) => s.status === 'RECEIVED' && s.lifecycle !== 'completed');
+    await shot(page, 'e2e-02-offline-order-1.png');
+    const banner = await page.getByText(/offline mode/i).count();
+    record(
+      '2d second punch left open for sync',
+      hasOpen && banner > 0,
+      JSON.stringify(statesOpen2),
+    );
+  } catch (e) {
+    await shot(page, 'e2e-02c-offline-payment-FAIL.png');
+    record('2c offline pay / open-bill sync setup', false, String(e));
   }
 
   // Step 3 — hard reload offline
@@ -215,7 +313,9 @@ async function main() {
 
   if (burgerAfterReload > 0) {
     try {
-      await placeCashOrder(page);
+      await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1000);
+      await punchOfflineOrder(page);
       await shot(page, 'e2e-04-offline-order-2.png');
       const pending = await pendingCount(page);
       record('3b second offline order after reload', pending >= 2, `pending=${pending}`);
@@ -295,7 +395,12 @@ async function main() {
   await page.waitForTimeout(5000);
   await shot(page, 'e2e-08-round2-online.png');
   await context.setOffline(true);
-  await placeCashOrder(page);
+  await punchOfflineOrder(page);
+  try {
+    await payOpenBillCash(page);
+  } catch (e) {
+    record('7 round-2 pay offline', false, String(e));
+  }
   await shot(page, 'e2e-09-round2-offline-order.png');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);

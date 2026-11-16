@@ -33,6 +33,29 @@ export async function queueOfflineOrder(record: PendingOfflineOrderRecord) {
   await offlineDb.pendingOrders.put(record);
 }
 
+export function buildSyncOrderPayload(entry: PendingOfflineOrderRecord): Record<string, unknown> {
+  const createPayload = entry.createPayload ?? entry.payload ?? {};
+  const merged: Record<string, unknown> = {
+    ...createPayload,
+    idempotencyKey: entry.idempotencyKey,
+    offlineTicketLabel: entry.offlineTicketLabel,
+    offlineTicketNumber: entry.offlineTicketNumber,
+  };
+  if (entry.itemUpdates?.length) {
+    merged.itemUpdates = entry.itemUpdates.map((update) => ({
+      items: update.items,
+      taxRate: update.taxRate,
+      serviceRate: update.serviceRate,
+    }));
+  }
+  if (entry.lifecycle === 'completed' && entry.completeWithCash) {
+    merged.completeWithCash = entry.completeWithCash;
+  } else if (entry.lifecycle === 'open') {
+    merged.offlineOrderStatus = entry.receiptOrder.status;
+  }
+  return merged;
+}
+
 export async function syncPendingOfflineOrders(scopeKey: string) {
   const pending = (await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray())
     .filter((row) => isQueueActive(row.syncStatus))
@@ -40,7 +63,7 @@ export async function syncPendingOfflineOrders(scopeKey: string) {
 
   if (!pending.length) return [] as BatchSyncResult[];
 
-  const orders = pending.map((entry) => entry.payload);
+  const orders = pending.map((entry) => buildSyncOrderPayload(entry));
   for (const entry of pending) {
     await offlineDb.pendingOrders.update(entry.id, { syncStatus: 'syncing', syncError: undefined });
   }
