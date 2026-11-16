@@ -178,10 +178,15 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   }, [isAuthenticated, scopeKey]);
 
   useEffect(() => {
-    if (!isAuthenticated || !pathname.includes('/orders/new')) return;
-    rememberLastPosUrl(pathname);
-    if (apiReachability === 'online') {
-      void warmPosShellCache(pathname);
+    if (!isAuthenticated) return;
+    const isPosRoute =
+      pathname.includes('/orders/new') ||
+      /\/[^/]+\/orders\/?$/.test(pathname) ||
+      pathname.includes('/waiter/orders');
+    if (!isPosRoute) return;
+    rememberLastPosUrl(pathname.includes('/orders/new') ? pathname : `/${pathname.split('/')[1]}/orders/new`);
+    if (apiReachability === 'online' && typeof window !== 'undefined') {
+      void warmPosShellCache(pathname, window.location.href);
     }
   }, [apiReachability, isAuthenticated, pathname]);
 

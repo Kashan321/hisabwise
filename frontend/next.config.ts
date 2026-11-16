@@ -40,8 +40,9 @@ function withSerwistWhenProduction(config: NextConfig): NextConfig {
     register: true,
     reloadOnOnline: false,
     additionalPrecacheEntries: [
-      { url: '/offline', revision: '20261112' },
-      { url: '/offline-pos', revision: '20261112' },
+      { url: '/offline', revision: '20261116-nav' },
+      { url: '/offline-pos', revision: '20261116-nav' },
+      { url: '/login', revision: '20261116-nav' },
     ],
   })(config);
 }

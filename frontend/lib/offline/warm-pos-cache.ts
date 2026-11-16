@@ -1,8 +1,9 @@
 import { rememberLastPosUrl } from '@/lib/offline/pos-shell-storage';
 
-const PAGES_CACHE = 'pages';
-const RSC_CACHE = 'pages-rsc';
-const POS_ROUTE_CACHE = 'pos-route-all';
+import { HTML_PAGES_CACHE, POS_ROUTE_CACHE, RSC_PAGES_CACHE } from '@/lib/offline/sw-cache-names';
+
+const PAGES_CACHE = HTML_PAGES_CACHE;
+const RSC_CACHE = RSC_PAGES_CACHE;
 
 function normalizeDocumentUrl(href: string) {
   const url = new URL(href, typeof window !== 'undefined' ? window.location.origin : undefined);
@@ -77,11 +78,11 @@ async function warmRscVariants(documentUrl: string) {
 }
 
 /** Persist the POS document and RSC flight payloads for offline hard reloads. */
-export async function warmPosShellCache(pathname: string) {
+export async function warmPosShellCache(pathname: string, href?: string) {
   if (typeof window === 'undefined' || !navigator.onLine) return;
 
   rememberLastPosUrl(pathname);
-  const documentUrl = normalizeDocumentUrl(window.location.href);
+  const documentUrl = normalizeDocumentUrl(href ?? window.location.href);
 
   try {
     const docResponse = await fetch(documentUrl, {
@@ -99,6 +100,10 @@ export async function warmPosShellCache(pathname: string) {
   const controller = navigator.serviceWorker?.controller;
   if (controller) {
     controller.postMessage({ type: 'CACHE_POS_URL', url: documentUrl });
+    const pathnameOnly = new URL(documentUrl).origin + new URL(documentUrl).pathname;
+    if (pathnameOnly !== documentUrl) {
+      controller.postMessage({ type: 'CACHE_POS_URL', url: pathnameOnly });
+    }
   }
 }
 

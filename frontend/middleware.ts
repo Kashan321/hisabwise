@@ -6,7 +6,9 @@ import { NextResponse } from 'next/server';
  * `/{slug}/orders/new`. The shell reads tenant state from IndexedDB when offline.
  */
 export function middleware(request: NextRequest) {
-  const match = request.nextUrl.pathname.match(/^\/([^/]+)\/orders\/new\/?$/);
+  const newOrder = request.nextUrl.pathname.match(/^\/([^/]+)\/orders\/new\/?$/);
+  const waiterNew = request.nextUrl.pathname.match(/^\/([^/]+)\/waiter\/orders\/new\/?$/);
+  const match = newOrder ?? waiterNew;
   if (!match) return NextResponse.next();
 
   const slug = match[1];
@@ -17,5 +19,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/:slug/orders/new'],
+  matcher: ['/:slug/orders/new', '/:slug/waiter/orders/new'],
 };

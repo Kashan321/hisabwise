@@ -38,8 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-full flex flex-col bg-surface text-on-surface font-body-base font-sans">
         {process.env.NODE_ENV === 'production' ? (
-          <Script id="register-sw" strategy="afterInteractive">
-            {`if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{scope:'/'});}`}
+          <Script id="register-sw" strategy="beforeInteractive">
+            {`if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{scope:'/',updateViaCache:'none'}).catch(function(){});}`}
           </Script>
         ) : null}
         <MicrosoftClarity />

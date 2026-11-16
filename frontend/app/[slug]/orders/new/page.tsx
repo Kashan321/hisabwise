@@ -56,7 +56,7 @@ export default function NewOrderPage({ params }: { params: Promise<{ slug: strin
 
   useEffect(() => {
     if (isReady && pathname.includes('/orders/new') && isAuthenticated) {
-      void warmPosShellCache(pathname);
+      void warmPosShellCache(pathname, window.location.href);
       if (navigator.onLine) router.prefetch(pathname);
       const stop = startPosRscCapture(slug);
       return stop;

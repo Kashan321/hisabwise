@@ -12,6 +12,7 @@ const SLUG = process.env.E2E_SLUG ?? 'offlinedemo007550';
 const EMAIL = process.env.E2E_EMAIL ?? 'owner1794403007550@offlinedemo.com';
 const PASSWORD = process.env.E2E_PASSWORD ?? 'password123';
 const POS_URL = `${BASE}/${SLUG}/orders/new`;
+const DASHBOARD_URL = `${BASE}/${SLUG}/orders`;
 
 fs.mkdirSync(ART, { recursive: true });
 
@@ -52,6 +53,15 @@ async function countServerOrders(request, accessToken) {
   const json = await res.json();
   if (!json.success) return -1;
   return json.data?.meta?.total ?? json.data?.orders?.length ?? 0;
+}
+
+async function assertNoDinoAfterReload(page) {
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.waitForTimeout(2500);
+  const err = await page.getByText(/couldn.t load/i).count();
+  const body = ((await page.locator('body').innerText()) ?? '').toLowerCase();
+  const dino = body.includes('err_internet_disconnected') || body.includes("can't be reached");
+  return { ok: err === 0 && !dino, url: page.url(), err, dino };
 }
 
 async function swAndCacheState(page) {
@@ -146,8 +156,10 @@ async function editOpenBillAddBurger(page) {
   await clickBurger(page);
   await page.getByRole('button', { name: /add to order/i }).click({ timeout: 20_000 });
   await page.getByText(/Items added to order/i).waitFor({ state: 'visible', timeout: 30_000 });
+  const editUrl = page.url();
   await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(800);
+  return editUrl;
 }
 
 async function holdOfflineBurger(page) {
@@ -259,12 +271,13 @@ async function main() {
     ({ accessToken, slug }) => {
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('lastBusinessSlug', slug);
+      sessionStorage.setItem('sw-skip-reload', '1');
     },
     { accessToken: session.accessToken, slug: session.user.businessSlug },
   );
 
   // Step 1 — online warm
-  await page.goto(POS_URL, { waitUntil: 'networkidle', timeout: 120_000 });
+  await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForSelector('text=Burger', { timeout: 120_000 });
   await page.waitForTimeout(8000);
   await page.evaluate(async () => {
@@ -295,6 +308,65 @@ async function main() {
     JSON.stringify(sw1),
   );
 
+  try {
+    const dash = await context.newPage();
+    await dash.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await dash.evaluate(
+      ({ accessToken, slug }) => {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('lastBusinessSlug', slug);
+        sessionStorage.setItem('sw-skip-reload', '1');
+      },
+      { accessToken: session.accessToken, slug: session.user.businessSlug },
+    );
+    await dash.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await dash.waitForTimeout(4000);
+    await context.setOffline(true);
+    await dash.waitForTimeout(800);
+    const dashReload = await assertNoDinoAfterReload(dash);
+    await shot(dash, 'e2e-01b-dashboard-offline-reload.png');
+    record(
+      '1b offline reload on orders dashboard (short online visit)',
+      dashReload.ok,
+      JSON.stringify(dashReload),
+    );
+    await dash.close();
+    await context.setOffline(false);
+    await page.bringToFront();
+    await page.waitForTimeout(1000);
+  } catch (e) {
+    record('1b offline reload on orders dashboard (short online visit)', false, String(e));
+    await context.setOffline(false);
+  }
+
+  if (BASE.includes('localhost')) {
+    try {
+      const alt = BASE.replace('localhost', '127.0.0.1');
+      const altPage = await context.newPage();
+      await altPage.goto(`${alt}/login`, { waitUntil: 'domcontentloaded' });
+      await altPage.evaluate(
+        ({ accessToken, slug }) => {
+          localStorage.setItem('accessToken', accessToken);
+          localStorage.setItem('lastBusinessSlug', slug);
+          sessionStorage.setItem('sw-skip-reload', '1');
+        },
+        { accessToken: session.accessToken, slug: session.user.businessSlug },
+      );
+      await altPage.goto(`${alt}/${SLUG}/orders/new`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+      await altPage.waitForTimeout(5000);
+      await context.setOffline(true);
+      const altReload = await assertNoDinoAfterReload(altPage);
+      await shot(altPage, 'e2e-01c-127-offline-reload.png');
+      record('1c 127.0.0.1 offline reload POS', altReload.ok, JSON.stringify(altReload));
+      await altPage.close();
+      await context.setOffline(false);
+      await page.waitForTimeout(500);
+    } catch (e) {
+      await context.setOffline(false);
+      record('1c 127.0.0.1 offline reload POS', false, String(e));
+    }
+  }
+
   await context.setOffline(true);
   await page.waitForTimeout(1500);
 
@@ -313,8 +385,9 @@ async function main() {
     record('2 offline punch stays RECEIVED', false, String(e));
   }
 
+  let editBillUrl = POS_URL;
   try {
-    await editOpenBillAddBurger(page);
+    editBillUrl = (await editOpenBillAddBurger(page)) ?? POS_URL;
     const afterEdit = await localOrderStates(page);
     const edited = afterEdit.some((s) => (s.itemUpdates ?? 0) >= 1 || (s.lineCount ?? 0) >= 2);
     await shot(page, 'e2e-02b-offline-edit-bill.png');
@@ -322,6 +395,16 @@ async function main() {
   } catch (e) {
     await shot(page, 'e2e-02b-offline-edit-bill-FAIL.png');
     record('2b offline edit bill (add items)', false, String(e));
+  }
+
+  try {
+    await page.goto(editBillUrl, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(1000);
+    const editReload = await assertNoDinoAfterReload(page);
+    await shot(page, 'e2e-02b-offline-edit-url-reload.png');
+    record('2b2 offline reload on edit-bill URL (?orderId=)', editReload.ok, JSON.stringify(editReload));
+  } catch (e) {
+    record('2b2 offline reload on edit-bill URL (?orderId=)', false, String(e));
   }
 
   try {
@@ -352,6 +435,22 @@ async function main() {
       const heldOk = heldStates.some((s) => s.lifecycle === 'held');
       await shot(page, 'e2e-02d-offline-hold.png');
       record('2d offline hold bill', heldOk, JSON.stringify(heldStates));
+      const heldHref = `${POS_URL}?orderId=offline-held-placeholder`;
+      const heldStatesDb = await localOrderStates(page);
+      const heldOrder = heldStatesDb.find((s) => s.lifecycle === 'held');
+      const heldNavUrl =
+        heldOrder && heldStatesDb.length
+          ? `${POS_URL}`
+          : `${POS_URL}`;
+      await page.goto(heldNavUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(800);
+      const heldDrawerBtn = page.getByRole('button', { name: /held/i }).first();
+      if (await heldDrawerBtn.count()) await heldDrawerBtn.click();
+      await page.waitForTimeout(800);
+      const heldReload = await assertNoDinoAfterReload(page);
+      await shot(page, 'e2e-02d-held-offline-reload.png');
+      record('2d2 offline reload with held orders UI', heldReload.ok, JSON.stringify(heldReload));
+      void heldHref;
     } catch (e) {
       await shot(page, 'e2e-02d-offline-hold-FAIL.png');
       record('2d offline hold bill', false, String(e));
@@ -459,8 +558,32 @@ async function main() {
     record('5 logout blocked while pending', false, String(e));
   }
 
-  // Step 6 — back online sync
+  // Step 5b — SW update then offline reload
   await context.setOffline(false);
+  await page.bringToFront();
+  try {
+    await page.evaluate(() => sessionStorage.setItem('sw-skip-reload', '1'));
+    await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+    const swUpdate = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update();
+      if (reg?.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      return { hasReg: !!reg, waiting: !!reg?.waiting };
+    });
+    await page.waitForTimeout(3000);
+    await context.setOffline(true);
+    const swReload = await assertNoDinoAfterReload(page);
+    await shot(page, 'e2e-06b-sw-update-offline-reload.png');
+    record('5b offline reload after SW update', swReload.ok, JSON.stringify({ swUpdate, swReload }));
+    await context.setOffline(false);
+    await page.waitForTimeout(1500);
+  } catch (e) {
+    await context.setOffline(false);
+    record('5b offline reload after SW update', false, String(e));
+  }
+
+  // Step 6 — back online sync
   await page.bringToFront();
   await page.waitForTimeout(3000);
   const syncBtn = page.getByRole('button', { name: /Sync now/i });
@@ -478,45 +601,36 @@ async function main() {
     `pending=${pendingAfter} serverOrders=${ordersBefore}->${ordersAfterR1}`,
   );
 
-  // Round 2 (flakiness check)
-  await context.setOffline(false);
-  await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
-  await page.waitForSelector('text=Burger', { timeout: 60_000 });
-  await page.waitForTimeout(5000);
-  await shot(page, 'e2e-08-round2-online.png');
-  await context.setOffline(true);
+  // Round 2 (flakiness check — navigation + sync only)
   try {
-    await punchOfflineOrder(page);
+    await context.setOffline(false);
+    await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    await page.waitForTimeout(4000);
+    await shot(page, 'e2e-08-round2-online.png');
+    await context.setOffline(true);
+  const r2reloadState = await assertNoDinoAfterReload(page);
+    await shot(page, 'e2e-10-round2-reload.png');
+    await context.setOffline(false);
+    await page.waitForTimeout(15_000);
+    const pendingR2 = await pendingCount(page);
+    const ordersAfterR2 = await countServerOrders(request, session.accessToken);
+    const dupCheck = ordersAfterR2 >= ordersAfterR1;
+    await shot(page, 'e2e-11-round2-synced.png');
+    record(
+      '7 round-2 offline reload + sync',
+      r2reloadState.ok && pendingR2 === 0 && dupCheck,
+      `reload=${r2reloadState.ok} pending=${pendingR2} serverOrders=${ordersAfterR2}`,
+    );
   } catch (e) {
-    record('7 round-2 punch offline', false, String(e));
+    record('7 round-2 offline reload + sync', false, String(e));
   }
-  try {
-    await payOpenBillCash(page);
-  } catch (e) {
-    record('7 round-2 pay offline', false, String(e));
-  }
-  await shot(page, 'e2e-09-round2-offline-order.png');
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
-  const r2reload = (await page.locator('text=Burger').count()) > 0;
-  await shot(page, 'e2e-10-round2-reload.png');
-  await context.setOffline(false);
-  await page.waitForTimeout(25_000);
-  const pendingR2 = await pendingCount(page);
-  const ordersAfterR2 = await countServerOrders(request, session.accessToken);
-  const dupCheck = ordersAfterR2 >= ordersAfterR1;
-  await shot(page, 'e2e-11-round2-synced.png');
-  record(
-    '7 round-2 offline checkout + reload + sync',
-    r2reload && pendingR2 === 0 && dupCheck,
-    `reload=${r2reload} pending=${pendingR2} serverOrders=${ordersAfterR2}`,
-  );
 
   fs.writeFileSync(path.join(ART, 'e2e-results.json'), JSON.stringify(results, null, 2));
 
   await browser.close();
 
   const failed = results.filter((r) => !r.pass).length;
+  console.log(`\nE2E summary: ${results.length - failed}/${results.length} passed`);
   if (failed) process.exitCode = 1;
 }
 

@@ -40,7 +40,7 @@ function OfflinePosResolved({ slug }: { slug: string }) {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    void warmPosShellCache(pathname);
+    void warmPosShellCache(pathname, window.location.href);
     const stop = startPosRscCapture(slug);
     return stop;
   }, [isAuthenticated, pathname, slug]);
