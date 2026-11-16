@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 
 const ART = '/opt/cursor/artifacts';
-const BASE = process.env.E2E_BASE ?? 'http://127.0.0.1:3000';
+const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 const SLUG = process.env.E2E_SLUG ?? 'offlinedemo007550';
 const EMAIL = process.env.E2E_EMAIL ?? 'owner1794403007550@offlinedemo.com';
 const PASSWORD = process.env.E2E_PASSWORD ?? 'password123';
@@ -33,6 +33,25 @@ async function apiLogin(request) {
   const json = await res.json();
   if (!json.success) throw new Error(JSON.stringify(json));
   return json.data;
+}
+
+async function ensureOpenBusinessDay(request, accessToken) {
+  const open = await request.post(`${BASE}/api/v1/business-days/open`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = await open.json();
+  if (!json.success && !String(json.error?.message ?? '').toLowerCase().includes('already')) {
+    throw new Error(`business day: ${JSON.stringify(json)}`);
+  }
+}
+
+async function countServerOrders(request, accessToken) {
+  const res = await request.get(`${BASE}/api/v1/orders?limit=100`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = await res.json();
+  if (!json.success) return -1;
+  return json.data?.meta?.total ?? json.data?.orders?.length ?? 0;
 }
 
 async function swAndCacheState(page) {
@@ -93,7 +112,14 @@ async function pendingCount(page) {
         const req = tx.objectStore('pendingOrders').getAll();
         req.onsuccess = () => {
           const rows = req.result ?? [];
-          resolve(rows.filter((r) => r.syncStatus === 'pending' || r.syncStatus === 'error').length);
+          resolve(
+            rows.filter(
+              (r) =>
+                r.syncStatus === 'pending' ||
+                r.syncStatus === 'error' ||
+                r.syncStatus === 'syncing',
+            ).length,
+          );
         };
         req.onerror = () => resolve(-1);
       };
@@ -108,6 +134,8 @@ async function main() {
   await context.grantPermissions(['notifications']);
   const request = context.request;
   const session = await apiLogin(request);
+  await ensureOpenBusinessDay(request, session.accessToken);
+  const ordersBefore = await countServerOrders(request, session.accessToken);
 
   const page = await context.newPage();
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
@@ -242,14 +270,24 @@ async function main() {
   }
 
   // Step 6 — back online sync
-    await context.setOffline(false);
+  await context.setOffline(false);
   await page.bringToFront();
-  await page.waitForTimeout(25_000);
+  await page.waitForTimeout(3000);
+  const syncBtn = page.getByRole('button', { name: /Sync now/i });
+  if (await syncBtn.count()) {
+    await syncBtn.click();
+  }
+  await page.waitForTimeout(20_000);
   const pendingAfter = await pendingCount(page);
+  const ordersAfterR1 = await countServerOrders(request, session.accessToken);
+  const syncedR1 = ordersAfterR1 > ordersBefore;
   await shot(page, 'e2e-07-synced-online.png');
-  record('6 sync when online', pendingAfter === 0, `pending=${pendingAfter}`);
+  record(
+    '6 sync when online',
+    pendingAfter === 0 && syncedR1,
+    `pending=${pendingAfter} serverOrders=${ordersBefore}->${ordersAfterR1}`,
+  );
 
-  fs.writeFileSync(path.join(ART, 'e2e-results.json'), JSON.stringify(results, null, 2));
   // Round 2 (flakiness check)
   await context.setOffline(false);
   await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
@@ -266,8 +304,16 @@ async function main() {
   await context.setOffline(false);
   await page.waitForTimeout(25_000);
   const pendingR2 = await pendingCount(page);
+  const ordersAfterR2 = await countServerOrders(request, session.accessToken);
+  const dupCheck = ordersAfterR2 >= ordersAfterR1;
   await shot(page, 'e2e-11-round2-synced.png');
-  record('7 round-2 offline checkout + reload + sync', r2reload && pendingR2 === 0, `reload=${r2reload} pending=${pendingR2}`);
+  record(
+    '7 round-2 offline checkout + reload + sync',
+    r2reload && pendingR2 === 0 && dupCheck,
+    `reload=${r2reload} pending=${pendingR2} serverOrders=${ordersAfterR2}`,
+  );
+
+  fs.writeFileSync(path.join(ART, 'e2e-results.json'), JSON.stringify(results, null, 2));
 
   await browser.close();
 

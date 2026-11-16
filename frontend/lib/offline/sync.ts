@@ -14,11 +14,15 @@ type BatchSyncResult = {
   error?: string;
 };
 
+function isQueueActive(status: PendingOfflineOrderRecord['syncStatus']) {
+  return status === 'pending' || status === 'error' || status === 'syncing';
+}
+
 export async function countPendingOfflineOrders(scopeKey?: string) {
   const rows = scopeKey
     ? await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray()
     : await offlineDb.pendingOrders.toArray();
-  return rows.filter((row) => row.syncStatus === 'pending' || row.syncStatus === 'error').length;
+  return rows.filter((row) => isQueueActive(row.syncStatus)).length;
 }
 
 export async function listPendingOfflineOrders(scopeKey: string) {
@@ -31,7 +35,7 @@ export async function queueOfflineOrder(record: PendingOfflineOrderRecord) {
 
 export async function syncPendingOfflineOrders(scopeKey: string) {
   const pending = (await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray())
-    .filter((row) => row.syncStatus === 'pending' || row.syncStatus === 'error')
+    .filter((row) => isQueueActive(row.syncStatus))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   if (!pending.length) return [] as BatchSyncResult[];
@@ -41,11 +45,21 @@ export async function syncPendingOfflineOrders(scopeKey: string) {
     await offlineDb.pendingOrders.update(entry.id, { syncStatus: 'syncing', syncError: undefined });
   }
 
-  const { results } = await apiFetch<{ results: BatchSyncResult[] }>('/pos/orders/sync-batch', {
-    method: 'POST',
-    body: JSON.stringify({ orders }),
-  });
+  let results: BatchSyncResult[];
+  try {
+    ({ results } = await apiFetch<{ results: BatchSyncResult[] }>('/pos/orders/sync-batch', {
+      method: 'POST',
+      body: JSON.stringify({ orders }),
+    }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Sync request failed';
+    for (const entry of pending) {
+      await offlineDb.pendingOrders.update(entry.id, { syncStatus: 'error', syncError: message });
+    }
+    return [];
+  }
 
+  const resultKeys = new Set(results.map((r) => r.idempotencyKey));
   for (const result of results) {
     const entry = pending.find((row) => row.idempotencyKey === result.idempotencyKey);
     if (!entry) continue;
@@ -60,6 +74,15 @@ export async function syncPendingOfflineOrders(scopeKey: string) {
       await offlineDb.pendingOrders.update(entry.id, {
         syncStatus: 'error',
         syncError: result.error ?? 'Sync failed',
+      });
+    }
+  }
+
+  for (const entry of pending) {
+    if (!resultKeys.has(entry.idempotencyKey)) {
+      await offlineDb.pendingOrders.update(entry.id, {
+        syncStatus: 'error',
+        syncError: 'No sync result from server',
       });
     }
   }

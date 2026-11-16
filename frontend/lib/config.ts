@@ -23,8 +23,9 @@ export const PLATFORM_NAME = BRANDING.platform;
 export const STORAGE_KEY_PREFIX = BRANDING.slug;
 
 /** Trailing slashes are stripped so paths like `/notifications/inbox` join correctly. */
+/** Default to same-origin proxy so production POS sync works when the browser is on the web app origin. */
 export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:4000/api/v1'
+  process.env.NEXT_PUBLIC_API_URL?.trim() || '/api/v1'
 ).replace(/\/$/, '');
 
 export function tenantUrl(slug: string): string {

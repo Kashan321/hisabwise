@@ -15,7 +15,6 @@ import { useAuth } from '@/lib/auth/auth-context';
 import { offlineDb, offlineScopeKey } from '@/lib/offline/db';
 import {
   getApiReachability,
-  pingApiHealth,
   startApiHeartbeat,
   subscribeApiReachability,
   type ApiReachability,
@@ -95,8 +94,7 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
 
   const syncNow = useCallback(async () => {
     if (!scopeKey) return;
-    const ok = await pingApiHealth();
-    if (!ok) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     await syncPendingOfflineOrders(scopeKey);
     await refreshPending();
     void queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -151,6 +149,15 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
       void syncNow();
     }
   }, [apiReachability, scopeKey, syncNow]);
+
+  useEffect(() => {
+    if (!scopeKey) return;
+    const onBrowserOnline = () => {
+      void syncNow();
+    };
+    window.addEventListener('online', onBrowserOnline);
+    return () => window.removeEventListener('online', onBrowserOnline);
+  }, [scopeKey, syncNow]);
 
   useEffect(() => {
     if (!isAuthenticated || !scopeKey) return;
