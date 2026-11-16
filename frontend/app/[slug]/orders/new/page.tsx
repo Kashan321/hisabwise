@@ -1,10 +1,11 @@
 'use client';
 
-import { Suspense, use, useEffect } from 'react';
+import { use, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { PosOrderScreen } from '@/components/orders/pos-order-screen';
+import { PosNewOrderShell } from '@/components/orders/pos-new-order-shell';
 import { SubscriptionLockScreen } from '@/components/subscription/subscription-lock-screen';
 import { Spinner } from '@/components/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth/auth-context';
 import {
   canAccessTenantRoute,
@@ -21,18 +22,15 @@ import { themeToStyle } from '@/lib/theme/theme-css';
 import { resolveTenantPageTitle } from '@/lib/document-title';
 import { useTenantDocumentTitle } from '@/lib/hooks/use-document-title';
 import { isBrowserOffline } from '@/lib/offline/session';
-import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
-import { OfflinePosProvider } from '@/components/offline/offline-pos-provider';
-import { OfflinePosBanner } from '@/components/offline/offline-pos-banner';
-
-function NewBillContent({ slug, exitHref }: { slug: string; exitHref: string }) {
-  return <PosOrderScreen slug={slug} fullScreen exitHref={exitHref} />;
-}
+import { warmPosShellCache, startPosRscCapture } from '@/lib/offline/warm-pos-cache';
+import { hydrateTenantQueriesFromSnapshot } from '@/lib/offline/hydrate-tenant-queries';
+import { offlineScopeKey } from '@/lib/offline/db';
 
 export default function NewOrderPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, logout, isAuthenticated, isReady } = useAuth();
   const { data: business } = useBusiness();
   const { data: subscription } = useSubscription();
@@ -51,11 +49,19 @@ export default function NewOrderPage({ params }: { params: Promise<{ slug: strin
   useTenantDocumentTitle(pageTitle, branchName);
 
   useEffect(() => {
+    if (!isReady || !isAuthenticated || !user?.businessId || !user.id) return;
+    const scopeKey = offlineScopeKey(user.businessId, user.id);
+  void hydrateTenantQueriesFromSnapshot(queryClient, scopeKey);
+  }, [isAuthenticated, isReady, queryClient, user]);
+
+  useEffect(() => {
     if (isReady && pathname.includes('/orders/new') && isAuthenticated) {
       void warmPosShellCache(pathname);
-      router.prefetch(pathname);
+      if (navigator.onLine) router.prefetch(pathname);
+      const stop = startPosRscCapture(slug);
+      return stop;
     }
-  }, [isAuthenticated, isReady, pathname, router]);
+  }, [isAuthenticated, isReady, pathname, router, slug]);
 
   useEffect(() => {
     if (isReady && !isAuthenticated) {
@@ -102,23 +108,5 @@ export default function NewOrderPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
-  return (
-    <OfflinePosProvider slug={slug}>
-      <div
-        className="h-[100dvh] max-h-[100dvh] w-full min-h-0 flex flex-col overflow-hidden pos-bill-immersive"
-        style={themeToStyle(business)}
-      >
-        <OfflinePosBanner />
-        <Suspense
-          fallback={
-            <div className="flex flex-1 items-center justify-center">
-              <Spinner />
-            </div>
-          }
-        >
-          <NewBillContent slug={slug} exitHref={exitHref} />
-        </Suspense>
-      </div>
-    </OfflinePosProvider>
-  );
+  return <PosNewOrderShell slug={slug} exitHref={exitHref} business={business} />;
 }

@@ -27,6 +27,9 @@ import {
   isBrowserOffline,
   loadCachedAuthUserForOffline,
 } from '@/lib/offline/session';
+import { countPendingOfflineOrders } from '@/lib/offline/sync';
+import { offlineScopeKey } from '@/lib/offline/db';
+import { hydrateTenantQueriesFromSnapshot } from '@/lib/offline/hydrate-tenant-queries';
 
 interface AuthState {
   user: AuthUser | null;
@@ -132,6 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (loadedUser) {
         setAuthUser(loadedUser);
         setLastBusinessSlug(loadedUser.businessSlug);
+        if (isBrowserOffline() && loadedUser.businessId && loadedUser.id) {
+          await hydrateTenantQueriesFromSnapshot(
+            queryClient,
+            offlineScopeKey(loadedUser.businessId, loadedUser.id),
+          );
+        }
       } else if (getTenantToken()) {
         if (!isBrowserOffline()) {
           clearTenantToken();
@@ -219,6 +228,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    if (user?.businessId && user?.id) {
+      const scopeKey = offlineScopeKey(user.businessId, user.id);
+      const pending = await countPendingOfflineOrders(scopeKey);
+      if (pending > 0) {
+        throw new Error(
+          `${pending} offline order${pending === 1 ? '' : 's'} still need to sync before you can log out.`,
+        );
+      }
+    }
     try {
       await apiFetch('/auth/logout', { method: 'POST', auth: 'tenant' });
     } finally {
@@ -226,7 +244,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUser(null);
       queryClient.clear();
     }
-  }, [queryClient]);
+  }, [queryClient, user]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

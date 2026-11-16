@@ -35,6 +35,8 @@ import type { PendingOfflineOrderRecord } from '@/lib/offline/db';
 import { isPosEffectivelyOffline } from '@/lib/offline/effective-offline';
 import { rememberLastPosUrl } from '@/lib/offline/pos-shell-storage';
 import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
+import { installPosRouteFetchCache } from '@/lib/offline/pos-fetch-cache';
+import { hydrateTenantQueriesFromSnapshot } from '@/lib/offline/hydrate-tenant-queries';
 import { usePathname } from 'next/navigation';
 
 interface OfflinePosContextValue {
@@ -78,7 +80,7 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
       queryClient.setQueryData(['business', 'me'], snapshot.business);
       queryClient.setQueryData(['menu'], {
         menu: snapshot.menu,
-        inventoryAvailability: {},
+        inventoryAvailability: { menuItems: {}, variants: {}, modifierOptions: {} },
       });
     },
     [queryClient],
@@ -101,9 +103,18 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   }, [queryClient, refreshPending, scopeKey]);
 
   useEffect(() => {
+    installPosRouteFetchCache();
     startApiHeartbeat();
     return subscribeApiReachability(setApiReachability);
   }, []);
+
+  useEffect(() => {
+    if (!scopeKey) return;
+    const hydrate = () => void hydrateTenantQueriesFromSnapshot(queryClient, scopeKey);
+    if (browserOffline || apiReachability !== 'online') hydrate();
+    window.addEventListener('offline', hydrate);
+    return () => window.removeEventListener('offline', hydrate);
+  }, [apiReachability, browserOffline, queryClient, scopeKey]);
 
   useEffect(() => {
     const onBrowserOffline = () => setBrowserOffline(!navigator.onLine);

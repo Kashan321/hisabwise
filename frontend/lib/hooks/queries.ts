@@ -87,6 +87,8 @@ export function useBusiness() {
     queryKey: ['business', 'me'],
     queryFn: () => apiFetch<{ business: Business }>('/business/me').then((d) => d.business),
     enabled,
+    placeholderData: (previous) => previous,
+    networkMode: 'offlineFirst',
   });
 }
 
@@ -102,6 +104,8 @@ export function useMenu() {
     enabled,
     staleTime: REFERENCE_STALE_MS,
     gcTime: REFERENCE_GC_MS,
+    placeholderData: (previous) => previous,
+    networkMode: 'offlineFirst',
   });
 }
 

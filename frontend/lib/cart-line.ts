@@ -171,7 +171,7 @@ export function isSellableInventoryOk(
   variantId?: string | null,
   modifierOptionIds?: string[],
 ): boolean {
-  if (!map) return true;
+  if (!map?.menuItems) return true;
 
   const itemAvail = map.menuItems[menuItemId];
   if (itemAvail?.status === 'out_of_stock') return false;
@@ -194,8 +194,8 @@ export function inventoryStatusLabel(
   menuItemId: string,
   variantId?: string | null,
 ): string | null {
-  if (!map) return null;
-  if (variantId && map.variants[variantId]?.status === 'out_of_stock') return 'Out of stock (None left)';
+  if (!map?.menuItems) return null;
+  if (variantId && map.variants?.[variantId]?.status === 'out_of_stock') return 'Out of stock (None left)';
   if (map.menuItems[menuItemId]?.status === 'out_of_stock') return 'Out of stock (None left)';
   if (variantId && map.variants[variantId]?.status === 'low') return 'Low stock (Running low)';
   if (map.menuItems[menuItemId]?.status === 'low') return 'Low stock (Running low)';

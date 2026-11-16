@@ -9,14 +9,6 @@ export default function OfflineFallbackPage() {
   useEffect(() => {
     const last = readLastPosUrl();
     setLastPosUrl(last);
-    const fallback = last ?? '/offline-pos';
-    window.location.replace(fallback);
-    const timer = window.setTimeout(() => {
-      if (window.location.pathname === '/offline' && last) {
-        window.location.replace('/offline-pos');
-      }
-    }, 1200);
-    return () => window.clearTimeout(timer);
   }, []);
 
   return (
