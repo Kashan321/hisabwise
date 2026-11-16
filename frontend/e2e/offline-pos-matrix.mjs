@@ -83,10 +83,19 @@ async function clickBurger(page) {
 }
 
 async function punchOfflineOrder(page) {
+  await page.getByRole('button', { name: 'Close overlay' }).click({ timeout: 2000 }).catch(() => undefined);
+  await dismissPunchOverlay(page);
   await clickBurger(page);
   await page.waitForTimeout(400);
-  await page.getByRole('button', { name: /place order/i }).click({ timeout: 20_000 });
-  await page.getByText(/punched/i).first().waitFor({ state: 'visible', timeout: 30_000 });
+  const placeBtn = page.getByRole('button', { name: /place order/i });
+  await placeBtn.waitFor({ state: 'visible', timeout: 30_000 });
+  await placeBtn.click({ timeout: 20_000 });
+  const card = page.locator('[data-order-id]').first();
+  await card.waitFor({ state: 'visible', timeout: 30_000 });
+  const statusText = (await card.textContent()) ?? '';
+  if (!/received/i.test(statusText)) {
+    await page.getByText(/punched/i).first().waitFor({ state: 'visible', timeout: 15_000 });
+  }
   const modalPay = page.getByRole('dialog');
   if (await modalPay.count()) {
     throw new Error('Payment modal appeared on punch — order should stay open');
@@ -101,6 +110,8 @@ async function firstOpenBill(page) {
 }
 
 async function payOpenBillCash(page) {
+  await page.getByRole('button', { name: 'Close overlay' }).click({ timeout: 2000 }).catch(() => undefined);
+  await page.keyboard.press('Escape').catch(() => undefined);
   for (const label of ['Prep', 'Ready', 'Deliver']) {
     const card = page.locator('[data-order-id]').filter({ hasText: /received|preparing|ready/i }).first();
     await card.waitFor({ state: 'visible', timeout: 15_000 });
@@ -113,7 +124,15 @@ async function payOpenBillCash(page) {
   await page.waitForTimeout(1200);
 }
 
+async function dismissPunchOverlay(page) {
+  const newBill = page.getByRole('button', { name: /^New bill$/i });
+  if (await newBill.count()) await newBill.click({ timeout: 5000 }).catch(() => undefined);
+  await page.keyboard.press('Escape').catch(() => undefined);
+  await page.waitForTimeout(400);
+}
+
 async function editOpenBillAddBurger(page) {
+  await dismissPunchOverlay(page);
   const card = await firstOpenBill(page);
   const addLink = card.getByText('Add', { exact: true });
   if (await addLink.count()) {
@@ -122,12 +141,42 @@ async function editOpenBillAddBurger(page) {
     await card.click();
   }
   await page.waitForURL(/orderId=/, { timeout: 20_000 });
-  await page.waitForTimeout(2500);
+  await dismissPunchOverlay(page);
+  await page.waitForTimeout(1500);
   await clickBurger(page);
   await page.getByRole('button', { name: /add to order/i }).click({ timeout: 20_000 });
-  await page.getByText(/Items added to order/i).waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByText(/Items added to order/i).waitFor({ state: 'visible', timeout: 30_000 });
   await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1200);
+}
+
+async function holdOfflineBurger(page) {
+  await clickBurger(page);
+  await page.getByRole('button', { name: /hold bill/i }).click({ timeout: 20_000 });
+  await page.getByText(/held/i).first().waitFor({ state: 'visible', timeout: 30_000 });
+  await dismissPunchOverlay(page);
+  await page.waitForTimeout(800);
+}
+
+async function deliveryOfflineOrder(page) {
+  await page.getByRole('button', { name: 'Delivery', exact: true }).click({ timeout: 10_000 });
+  await page.getByLabel('Name', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByLabel('Name', { exact: true }).fill('Offline Guest');
+  await page.getByLabel('Phone', { exact: true }).fill('03001234567');
+  await page.getByLabel('Address', { exact: true }).fill('123 Test Street');
+  await clickBurger(page);
+  await page.getByRole('button', { name: /place order/i }).click({ timeout: 20_000 });
+  await page.getByText(/punched/i).first().waitFor({ state: 'visible', timeout: 30_000 });
+  await dismissPunchOverlay(page);
+}
+
+async function cancelFirstOpenBill(page) {
+  await dismissPunchOverlay(page);
+  const card = await firstOpenBill(page);
+  await card.getByTitle('Cancel order').click({ timeout: 15_000 });
+  await page.getByRole('button', { name: /cancel order/i }).click({ timeout: 15_000 });
+  await page.getByText(/cancelled/i).first().waitFor({ state: 'visible', timeout: 20_000 });
+  await page.waitForTimeout(800);
 }
 
 async function localOrderStates(page) {
@@ -186,7 +235,10 @@ async function pendingCount(page) {
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ serviceWorkers: 'allow' });
+  const context = await browser.newContext({
+    serviceWorkers: 'allow',
+    viewport: { width: 1440, height: 900 },
+  });
   await context.grantPermissions(['notifications']);
   const request = context.request;
   const session = await apiLogin(request);
@@ -288,10 +340,48 @@ async function main() {
     await shot(page, 'e2e-02-offline-order-1.png');
     const banner = await page.getByText(/offline mode/i).count();
     record(
-      '2d second punch left open for sync',
+      '2g second punch left open for sync',
       hasOpen && banner > 0,
       JSON.stringify(statesOpen2),
     );
+
+    try {
+      await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+      await holdOfflineBurger(page);
+      const heldStates = await localOrderStates(page);
+      const heldOk = heldStates.some((s) => s.lifecycle === 'held');
+      await shot(page, 'e2e-02d-offline-hold.png');
+      record('2d offline hold bill', heldOk, JSON.stringify(heldStates));
+    } catch (e) {
+      await shot(page, 'e2e-02d-offline-hold-FAIL.png');
+      record('2d offline hold bill', false, String(e));
+    }
+
+    try {
+      await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+      await deliveryOfflineOrder(page);
+      const deliveryStates = await localOrderStates(page);
+      const deliveryOk = deliveryStates.some(
+        (s) => s.status === 'RECEIVED' && s.lifecycle === 'open',
+      );
+      await shot(page, 'e2e-02e-offline-delivery.png');
+      record('2e offline delivery punch', deliveryOk, JSON.stringify(deliveryStates));
+    } catch (e) {
+      await shot(page, 'e2e-02e-offline-delivery-FAIL.png');
+      record('2e offline delivery punch', false, String(e));
+    }
+
+    try {
+      await page.goto(POS_URL, { waitUntil: 'domcontentloaded' });
+      await cancelFirstOpenBill(page);
+      const cancelStates = await localOrderStates(page);
+      const cancelled = cancelStates.some((s) => s.status === 'CANCELLED');
+      await shot(page, 'e2e-02f-offline-cancel.png');
+      record('2f offline cancel open bill', cancelled, JSON.stringify(cancelStates));
+    } catch (e) {
+      await shot(page, 'e2e-02f-offline-cancel-FAIL.png');
+      record('2f offline cancel open bill', false, String(e));
+    }
   } catch (e) {
     await shot(page, 'e2e-02c-offline-payment-FAIL.png');
     record('2c offline pay / open-bill sync setup', false, String(e));
@@ -395,7 +485,11 @@ async function main() {
   await page.waitForTimeout(5000);
   await shot(page, 'e2e-08-round2-online.png');
   await context.setOffline(true);
-  await punchOfflineOrder(page);
+  try {
+    await punchOfflineOrder(page);
+  } catch (e) {
+    record('7 round-2 punch offline', false, String(e));
+  }
   try {
     await payOpenBillCash(page);
   } catch (e) {

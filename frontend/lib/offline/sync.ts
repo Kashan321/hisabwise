@@ -48,8 +48,23 @@ export function buildSyncOrderPayload(entry: PendingOfflineOrderRecord): Record<
       serviceRate: update.serviceRate,
     }));
   }
+  if (entry.itemAdjustments?.length) {
+    merged.offlineItemAdjustments = entry.itemAdjustments.map((row) => ({
+      clientItemId: row.clientItemId,
+      menuItemId: row.menuItemId,
+      delta: row.delta,
+    }));
+  }
+  if (entry.pricingUpdates?.length) {
+    merged.offlinePricingUpdates = entry.pricingUpdates.map((row) => row.patch);
+  }
+  if (entry.replaySendToKitchen) {
+    merged.replaySendToKitchen = true;
+  }
   if (entry.lifecycle === 'completed' && entry.completeWithCash) {
     merged.completeWithCash = entry.completeWithCash;
+  } else if (entry.lifecycle === 'cancelled') {
+    merged.offlineOrderStatus = 'CANCELLED';
   } else if (entry.lifecycle === 'open') {
     merged.offlineOrderStatus = entry.receiptOrder.status;
   }
@@ -128,6 +143,7 @@ export function buildOfflineReceiptOrder(input: {
   paymentMethod?: Order['paymentMethod'];
   payments?: Order['payments'];
   notes?: string | null;
+  isDraft?: boolean;
 }): Order {
   return {
     id: input.id,
@@ -136,7 +152,7 @@ export function buildOfflineReceiptOrder(input: {
     source: 'STAFF_ASSISTED',
     orderType: input.orderType,
     status: input.status,
-    isDraft: false,
+    isDraft: input.isDraft ?? false,
     subtotal: String(input.subtotal),
     discountAmount: '0',
     taxAmount: String(input.taxAmount),

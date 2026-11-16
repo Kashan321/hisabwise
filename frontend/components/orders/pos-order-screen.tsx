@@ -36,14 +36,19 @@ import { useOfflinePos } from '@/components/offline/offline-pos-provider';
 import { CompleteOrderPaymentModal } from '@/components/orders/complete-order-payment-modal';
 import {
   addItemsToLocalOrder,
+  adjustLocalOrderItemQuantity,
   advanceLocalOrderStatus,
+  cancelLocalHeldOrder,
   cancelLocalOrder,
   completeLocalOrderPayment,
   getLocalOrderById,
   isOfflineLocalOrderId,
   placeOfflineOrder,
+  sendLocalOrderToKitchen,
+  updateLocalOrderPricing,
 } from '@/lib/offline/local-orders';
 import { useOfflineActiveOrders } from '@/lib/hooks/use-offline-local-orders';
+import { useOfflineHeldOrders } from '@/lib/hooks/use-offline-held-orders';
 import type { OfflineLocalOrderOps } from '@/lib/offline/offline-local-order-ops';
 import {
   isNetworkFailureError,
@@ -929,6 +934,8 @@ export function PosOrderScreen({
   const offlinePos = useOfflinePos();
   const { orders: offlineActiveOrders, refresh: refreshOfflineActiveOrders } =
     useOfflineActiveOrders(offlinePos.scopeKey);
+  const { orders: offlineHeldOrders, refresh: refreshOfflineHeldOrders } =
+    useOfflineHeldOrders(offlinePos.scopeKey);
   const activeOrderByTable = useMemo(
     () =>
       buildActiveOrderByTable([
@@ -990,9 +997,30 @@ export function PosOrderScreen({
     if (!existingOrderId || !localExistingOrder) return;
     queryClient.setQueryData(['orders', existingOrderId], localExistingOrder);
   }, [existingOrderId, localExistingOrder, queryClient]);
-  const { data: heldOrder } = useOrder(heldOrderId ?? '');
+  const { data: heldOrderFromApi } = useOrder(
+    heldOrderId && !isOfflineLocalOrderId(heldOrderId) && !skipApiOrderFetch ? heldOrderId : '',
+  );
+  const [localHeldOrder, setLocalHeldOrder] = useState<Order | null>(null);
+  useEffect(() => {
+    if (!heldOrderId || !offlinePos.scopeKey) {
+      setLocalHeldOrder(null);
+      return;
+    }
+    void getLocalOrderById(offlinePos.scopeKey, heldOrderId).then(setLocalHeldOrder);
+    const onQueueChange = () => {
+      void getLocalOrderById(offlinePos.scopeKey!, heldOrderId).then(setLocalHeldOrder);
+      void refreshOfflineHeldOrders();
+    };
+    window.addEventListener('hisabwise:offline-queue-changed', onQueueChange);
+    return () => window.removeEventListener('hisabwise:offline-queue-changed', onQueueChange);
+  }, [heldOrderId, offlinePos.scopeKey, refreshOfflineHeldOrders]);
+  const heldOrder = localHeldOrder ?? heldOrderFromApi;
   const { data: heldOrdersData } = useHeldOrders();
-  const heldOrderCount = heldOrdersData?.orders.length ?? 0;
+  const heldOrderCount =
+    (heldOrdersData?.orders.length ?? 0) +
+    offlineHeldOrders.filter(
+      (order) => !heldOrdersData?.orders.some((remote) => remote.id === order.id),
+    ).length;
   const updateOrderStatus = useUpdateOrderStatus();
 
   const [orderMode, setOrderMode] = useState<OrderMode>(() => {
@@ -1025,8 +1053,20 @@ export function PosOrderScreen({
   const [editingLineKey, setEditingLineKey] = useState<string | null>(null);
   const [initialSelection, setInitialSelection] = useState<CartLineSelection | undefined>();
   const [cartOpen, setCartOpen] = useState(false);
+  const [isLargeCartLayout, setIsLargeCartLayout] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setIsLargeCartLayout(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   const [heldOrdersOpen, setHeldOrdersOpen] = useState(false);
   const [punchedOrder, setPunchedOrder] = useState<Order | null>(null);
+  useEffect(() => {
+    if (existingOrderId || heldOrderId) setPunchedOrder(null);
+  }, [existingOrderId, heldOrderId]);
   const [extrasOpen, setExtrasOpen] = useState(false);
   const [flashItemId, setFlashItemId] = useState<string | null>(null);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1562,8 +1602,33 @@ export function PosOrderScreen({
     const saveKey = JSON.stringify(patch);
     if (saveKey === lastPricingSaveKeyRef.current) return;
 
+    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
+    const effectivelyOffline = isPosEffectivelyOffline({
+      apiReachability: offlinePos.apiReachability,
+      browserOnline,
+    });
     try {
-      await updateOrderPricing.mutateAsync({ orderId: existingOrderId, ...patch });
+      if (
+        effectivelyOffline &&
+        offlinePos.scopeKey &&
+        isOfflineLocalOrderId(existingOrderId)
+      ) {
+        const order = await updateLocalOrderPricing(
+          offlinePos.scopeKey,
+          existingOrderId,
+          patch,
+          {
+            subtotal: combinedBillPricing.subtotal,
+            taxAmount: combinedBillPricing.taxAmount,
+            serviceAmount: combinedBillPricing.serviceAmount,
+            totalAmount: combinedBillPricing.totalAmount,
+            discountAmount: combinedBillPricing.discountAmount,
+          },
+        );
+        setLocalExistingOrder(order);
+      } else {
+        await updateOrderPricing.mutateAsync({ orderId: existingOrderId, ...patch });
+      }
       lastPricingSaveKeyRef.current = saveKey;
     } catch (err) {
       toast.error(formatApiError(err));
@@ -1581,6 +1646,10 @@ export function PosOrderScreen({
     business,
     updateOrderPricing,
     toast,
+    combinedBillPricing,
+    offlinePos.scopeKey,
+    offlinePos.apiReachability,
+    network.online,
   ]);
 
   useEffect(() => {
@@ -1757,6 +1826,22 @@ export function PosOrderScreen({
 
   function handleAdjustExistingItem(orderItemId: string, delta: number) {
     if (!existingOrderId) return;
+    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
+    const effectivelyOffline = isPosEffectivelyOffline({
+      apiReachability: offlinePos.apiReachability,
+      browserOnline,
+    });
+  if (effectivelyOffline && offlinePos.scopeKey && isOfflineLocalOrderId(existingOrderId)) {
+      const scopeKey = offlinePos.scopeKey;
+      void adjustLocalOrderItemQuantity(scopeKey, existingOrderId, orderItemId, delta)
+        .then((order) => {
+          setLocalExistingOrder(order);
+          toast.success(delta < 0 ? 'Item updated' : 'Item quantity increased');
+          void refreshOfflineActiveOrders();
+        })
+        .catch((err) => toast.error(formatApiError(err)));
+      return;
+    }
     adjustOrderItem.mutate(
       { orderId: existingOrderId, orderItemId, delta },
       {
@@ -1843,6 +1928,11 @@ export function PosOrderScreen({
   }
 
   async function cancelHeldOrder(orderId: string) {
+    if (offlinePos.scopeKey && isOfflineLocalOrderId(orderId)) {
+      await cancelLocalHeldOrder(offlinePos.scopeKey, orderId);
+      void refreshOfflineHeldOrders();
+      return;
+    }
     try {
       await updateOrderStatus.mutateAsync({ id: orderId, status: 'CANCELLED' });
     } catch {
@@ -1921,6 +2011,42 @@ export function PosOrderScreen({
     try {
       if (heldOrderId) {
         await cancelHeldOrder(heldOrderId);
+      }
+      const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
+      const effectivelyOffline = isPosEffectivelyOffline({
+        apiReachability: offlinePos.apiReachability,
+        browserOnline,
+      });
+      if (effectivelyOffline && offlinePos.scopeKey) {
+        const createPayload = buildCreateOrderPayload(items, true);
+        const tableIdentifier = tableId ? tableMap[tableId] ?? null : null;
+        await placeOfflineOrder({
+          scopeKey: offlinePos.scopeKey,
+          idempotencyKey,
+          createPayload,
+          pricing: {
+            subtotal: pricing.subtotal,
+            taxAmount: pricing.taxAmount,
+            serviceAmount: pricing.serviceAmount,
+            totalAmount: pricing.totalAmount,
+          },
+          orderType: orderMode,
+          receiptItems: buildReceiptItemsFromCart(items),
+          snapshotLineUnitPrices: buildSnapshotLineUnitPrices(items),
+          tableIdentifier,
+          notes: orderNotes.trim() || undefined,
+          asDraft: true,
+          customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
+          deliveryAddress: deliveryAddress.trim() || undefined,
+          deliveryNotes: deliveryNotes.trim() || undefined,
+        });
+        resetCheckoutIdempotencyKey(slug);
+        toast.success('Order held — start a new order anytime');
+        clearOrder();
+        setCartOpen(false);
+        void refreshOfflineHeldOrders();
+        return;
       }
       const data = await createOrder.mutateAsync({
         ...buildCreateOrderPayload(items, true),
@@ -2006,7 +2132,7 @@ export function PosOrderScreen({
         : 0;
       const lineTotal = unit * line.quantity;
       return {
-        id: `offline-${index}`,
+        id: `offline-line-${crypto.randomUUID()}`,
         menuItemId: line.menuItemId,
         menuItemName: item?.name ?? 'Item',
         quantity: line.quantity,
@@ -2021,14 +2147,6 @@ export function PosOrderScreen({
   }
 
   async function submitOfflineNewOrder(items: ReturnType<typeof buildCartItems>, asDraft: boolean) {
-    if (asDraft || waiterMode) {
-      toast.error('Held or waiter draft orders are not available offline.');
-      return;
-    }
-    if (orderMode === 'DELIVERY') {
-      toast.error('Delivery orders require an internet connection.');
-      return;
-    }
     if (!offlinePos.scopeKey) {
       toast.error('Offline data is not ready. Load POS once while online.');
       return;
@@ -2044,7 +2162,8 @@ export function PosOrderScreen({
     setCheckoutMessage('Saving order on this device…');
     const idempotencyKey = getOrCreateCheckoutIdempotencyKey(slug);
     try {
-      const createPayload = buildCreateOrderPayload(items, false);
+      const punchAsDraft = waiterMode ? asDraft : false;
+      const createPayload = buildCreateOrderPayload(items, punchAsDraft);
       const tableIdentifier = tableId ? tableMap[tableId] ?? null : null;
       const { order } = await placeOfflineOrder({
         scopeKey: offlinePos.scopeKey,
@@ -2061,9 +2180,15 @@ export function PosOrderScreen({
         snapshotLineUnitPrices: buildSnapshotLineUnitPrices(items),
         tableIdentifier,
         notes: orderNotes.trim() || undefined,
+        asDraft: punchAsDraft,
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        deliveryAddress: deliveryAddress.trim() || undefined,
+        deliveryNotes: deliveryNotes.trim() || undefined,
       });
-      await processNewOrderSuccess({ order, idempotentReplay: false }, false);
+      await processNewOrderSuccess({ order, idempotentReplay: false }, punchAsDraft);
       void refreshOfflineActiveOrders();
+      if (punchAsDraft) void refreshOfflineHeldOrders();
     } catch (err) {
       toast.error(formatApiError(err) || 'Could not save offline order.');
     } finally {
@@ -2098,7 +2223,7 @@ export function PosOrderScreen({
       });
       await processNewOrderSuccess(data, asDraft);
     } catch (err) {
-      const mayRetryOffline = offlinePos.scopeKey && !waiterMode && !asDraft && orderMode !== 'DELIVERY';
+      const mayRetryOffline = Boolean(offlinePos.scopeKey);
       const networkFailed = !browserOnline || isNetworkFailureError(err);
       if (mayRetryOffline && networkFailed) {
         await submitOfflineNewOrder(items, asDraft);
@@ -2135,36 +2260,40 @@ export function PosOrderScreen({
       });
       if (effectivelyOffline && offlinePos.scopeKey) {
         const scopeKey = offlinePos.scopeKey;
-        void getLocalOrderById(scopeKey, existingOrderId).then((localOrder) => {
-          if (!localOrder) {
-            toast.error('Open bill not found on this device.');
-            return;
+        void (async () => {
+          try {
+            const localOrder = await getLocalOrderById(scopeKey, existingOrderId);
+            if (!localOrder) {
+              toast.error('Open bill not found on this device.');
+              return;
+            }
+            const updated = await addItemsToLocalOrder({
+              scopeKey,
+              orderId: existingOrderId,
+              items,
+              receiptItems: buildReceiptItemsFromCart(items),
+              pricing: {
+                subtotal: combinedBillPricing.subtotal,
+                taxAmount: combinedBillPricing.taxAmount,
+                serviceAmount: combinedBillPricing.serviceAmount,
+                totalAmount: combinedBillPricing.totalAmount,
+              },
+              taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
+              serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+            });
+            setLocalExistingOrder(updated);
+            toast.success('Items added to order');
+            clearOrderAddDraft(slug, existingOrderId);
+            syncAddDraftCounts();
+            setCart({});
+            setCartOpen(false);
+            setPunchedOrder(null);
+            void refreshOfflineActiveOrders();
+            router.replace(newBillHref);
+          } catch (err) {
+            toast.error(formatApiError(err));
           }
-          return addItemsToLocalOrder({
-          scopeKey,
-          orderId: existingOrderId,
-          items,
-          receiptItems: buildReceiptItemsFromCart(items),
-          pricing: {
-            subtotal: combinedBillPricing.subtotal,
-            taxAmount: combinedBillPricing.taxAmount,
-            serviceAmount: combinedBillPricing.serviceAmount,
-            totalAmount: combinedBillPricing.totalAmount,
-          },
-          taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
-          serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
-        })
-            .then(() => {
-              toast.success('Items added to order');
-              clearOrderAddDraft(slug, existingOrderId);
-              syncAddDraftCounts();
-              setCart({});
-              setCartOpen(false);
-              void refreshOfflineActiveOrders();
-              router.replace(newBillHref);
-            })
-            .catch((err) => toast.error(formatApiError(err)));
-        });
+        })();
         return;
       }
       addOrderItems.mutate(
@@ -2207,22 +2336,51 @@ export function PosOrderScreen({
     const serviceRate = Math.min(1, Math.max(0, Number(serviceRatePercent) / 100));
     const items = buildCartItems();
 
+    const browserOnline = typeof navigator !== 'undefined' && navigator.onLine && network.online;
+    const effectivelyOffline = isPosEffectivelyOffline({
+      apiReachability: offlinePos.apiReachability,
+      browserOnline,
+    });
     try {
       if (items.length > 0) {
-        await addOrderItems.mutateAsync({
-          orderId: existingOrderId,
-          items,
-          taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
-          serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
-        });
+        if (effectivelyOffline && offlinePos.scopeKey && isOfflineLocalOrderId(existingOrderId)) {
+          await addItemsToLocalOrder({
+            scopeKey: offlinePos.scopeKey,
+            orderId: existingOrderId,
+            items,
+            receiptItems: buildReceiptItemsFromCart(items),
+            pricing: {
+              subtotal: combinedBillPricing.subtotal,
+              taxAmount: combinedBillPricing.taxAmount,
+              serviceAmount: combinedBillPricing.serviceAmount,
+              totalAmount: combinedBillPricing.totalAmount,
+            },
+            taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
+            serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+          });
+        } else {
+          await addOrderItems.mutateAsync({
+            orderId: existingOrderId,
+            items,
+            taxRate: Number.isFinite(taxRate) ? taxRate : undefined,
+            serviceRate: Number.isFinite(serviceRate) ? serviceRate : undefined,
+          });
+        }
         clearOrderAddDraft(slug, existingOrderId);
         syncAddDraftCounts();
         setCart({});
       }
-      const { order } = await sendToKitchen.mutateAsync(existingOrderId);
+      let order: Order;
+      if (effectivelyOffline && offlinePos.scopeKey && isOfflineLocalOrderId(existingOrderId)) {
+        order = await sendLocalOrderToKitchen(offlinePos.scopeKey, existingOrderId);
+        void refreshOfflineActiveOrders();
+        void refreshOfflineHeldOrders();
+      } else {
+        ({ order } = await sendToKitchen.mutateAsync(existingOrderId));
+        void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      }
       toast.success(waiterMode ? 'Order placed' : 'Order punched');
       setCartOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ['orders'] });
       setPunchedOrder(order);
       router.replace(newBillHref);
     } catch (err) {
@@ -3105,6 +3263,7 @@ export function PosOrderScreen({
               unpunchedDraftCounts={addDraftCounts}
               extraOrders={offlineActiveOrders}
               offlineOrderOps={offlineOrderOps}
+              suppressApiOrders={posEffectivelyOffline && offlineActiveOrders.length > 0}
               onOrderCompleted={(order) =>
                 queuePrintBillPrompt(
                   order,
@@ -3292,7 +3451,7 @@ export function PosOrderScreen({
       )}
 
       <Drawer
-        open={cartOpen}
+        open={cartOpen && !isLargeCartLayout}
         onClose={() => setCartOpen(false)}
         title={existingOrderId ? 'Add to order' : 'Current bill'}
         width="lg"
@@ -3334,7 +3493,20 @@ export function PosOrderScreen({
       />
 
       {showHoldActions && (
-        <HeldOrdersDrawer slug={slug} open={heldOrdersOpen} onClose={() => setHeldOrdersOpen(false)} />
+        <HeldOrdersDrawer
+          slug={slug}
+          open={heldOrdersOpen}
+          onClose={() => setHeldOrdersOpen(false)}
+          extraHeldOrders={offlineHeldOrders}
+          offlineHeldOps={
+            offlinePos.scopeKey
+              ? {
+                  sendToKitchen: (orderId) => sendLocalOrderToKitchen(offlinePos.scopeKey!, orderId),
+                  discard: (orderId) => cancelLocalHeldOrder(offlinePos.scopeKey!, orderId),
+                }
+              : undefined
+          }
+        />
       )}
     </div>
   );

@@ -74,6 +74,10 @@ async function advanceOpenOrderStatus(
   actorId: string,
   target: OrderStatus,
 ) {
+  if (target === 'CANCELLED') {
+    await ordersModule.updateOrderStatus.execute(businessId, orderId, 'CANCELLED', undefined, actorId);
+    return;
+  }
   const targetIndex = STATUS_FLOW.indexOf(target);
   if (targetIndex < 0) return;
   let order = await ordersModule.getOrder.execute(businessId, orderId);
@@ -84,6 +88,23 @@ async function advanceOpenOrderStatus(
     if (!next || STATUS_FLOW.indexOf(next) > targetIndex) break;
     order = await ordersModule.updateOrderStatus.execute(businessId, orderId, next, undefined, actorId);
   }
+}
+
+function resolveClientItemId(
+  items: Array<{ id: string; menuItemId: string | null }>,
+  clientItemId: string,
+  menuItemId: string,
+): string | null {
+  const direct = items.find((line) => line.id === clientItemId);
+  if (direct) return direct.id;
+  const matches = items.filter((line) => line.menuItemId === menuItemId);
+  if (matches.length === 1) return matches[0].id;
+  const offlineIndex = clientItemId.match(/^offline-(\d+)$/);
+  if (offlineIndex) {
+    const idx = Number(offlineIndex[1]);
+    return matches[idx]?.id ?? items[idx]?.id ?? null;
+  }
+  return matches[0]?.id ?? null;
 }
 
 export class SyncOfflineOrdersBatchUseCase {
@@ -161,6 +182,34 @@ export class SyncOfflineOrdersBatchUseCase {
           );
         }
 
+        if (item.replaySendToKitchen && order.isDraft) {
+          order = await ordersModule.sendOrderToKitchen.execute(businessId, order.id, {
+            userId: actorId,
+          });
+        }
+
+        for (const adjustment of item.offlineItemAdjustments ?? []) {
+          const serverItemId = resolveClientItemId(
+            order.items ?? [],
+            adjustment.clientItemId,
+            adjustment.menuItemId,
+          );
+          if (!serverItemId) continue;
+          order = await ordersModule.adjustOrderItemQuantity.execute(
+            businessId,
+            order.id,
+            serverItemId,
+            adjustment.delta,
+            { userId: actorId },
+          );
+        }
+
+        for (const pricing of item.offlinePricingUpdates ?? []) {
+          order = await ordersModule.updateOrderPricing.execute(businessId, order.id, pricing, {
+            userId: actorId,
+          });
+        }
+
         if (item.completeWithCash && order.status !== 'COMPLETED' && !order.isDraft) {
           order = await completeWithCash(
             businessId,
@@ -169,7 +218,7 @@ export class SyncOfflineOrdersBatchUseCase {
             Number(order.totalAmount),
             item.completeWithCash,
           );
-        } else if (item.offlineOrderStatus && item.offlineOrderStatus !== 'COMPLETED') {
+        } else if (item.offlineOrderStatus) {
           await advanceOpenOrderStatus(businessId, order.id, actorId, item.offlineOrderStatus);
           const refreshed = await ordersModule.getOrder.execute(businessId, order.id);
           if (refreshed) order = refreshed;

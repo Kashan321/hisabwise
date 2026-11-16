@@ -4,6 +4,7 @@ import {
   applyCreateOrderRefinements,
   createOrderObjectSchema,
   orderStatusEnum,
+  updateOrderPricingSchema,
 } from '../../../orders/presentation/http/orders.validators';
 
 export const registerPosDeviceSchema = z.object({
@@ -16,6 +17,12 @@ const offlineCashCompletionSchema = z.object({
   changeGiven: z.number().min(0).optional(),
 });
 
+const offlineItemAdjustmentSchema = z.object({
+  clientItemId: z.string().min(1).max(80),
+  menuItemId: z.string().uuid(),
+  delta: z.number().int().min(-99).max(99).refine((value) => value !== 0),
+});
+
 export const syncOfflineOrderEntrySchema = createOrderObjectSchema
   .extend({
     idempotencyKey: z.string().uuid(),
@@ -25,18 +32,14 @@ export const syncOfflineOrderEntrySchema = createOrderObjectSchema
     completeWithCash: offlineCashCompletionSchema.optional(),
     snapshotLineUnitPrices: z.record(z.string().uuid(), z.string()).optional(),
     itemUpdates: z.array(addOrderItemsSchema).optional(),
+    offlineItemAdjustments: z.array(offlineItemAdjustmentSchema).optional(),
+    offlinePricingUpdates: z.array(updateOrderPricingSchema).optional(),
+    replaySendToKitchen: z.boolean().optional(),
     /** Final non-completed status from the device when the bill is still open locally. */
     offlineOrderStatus: orderStatusEnum.optional(),
   })
   .superRefine((data, ctx) => {
     applyCreateOrderRefinements(data, ctx);
-    if (data.completeWithCash && data.orderType === 'DELIVERY') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Offline sync does not support delivery checkout',
-        path: ['orderType'],
-      });
-    }
     if (data.source !== 'STAFF_ASSISTED') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { Button, Icon } from '@/components/ui';
 import { Drawer } from '@/components/ui/modal';
 import { ConfirmDialog } from '@/components/ui/modal';
@@ -12,28 +13,61 @@ import { formatOrderLabel } from '@/lib/order-display';
 import { useSendOrderToKitchen, useUpdateOrderStatus } from '@/lib/hooks/mutations';
 import { useHeldOrders } from '@/lib/hooks/queries';
 import { useFormatMoney } from '@/lib/hooks/use-business-currency';
+import { isDeviceLocalOrder } from '@/lib/offline/local-orders';
 import { useToast } from '@/lib/toast';
-import { useState } from 'react';
+
+type OfflineHeldOps = {
+  sendToKitchen: (orderId: string) => Promise<Order>;
+  discard: (orderId: string) => Promise<void>;
+};
 
 export function HeldOrdersDrawer({
   slug,
   open,
   onClose,
+  extraHeldOrders = [],
+  offlineHeldOps,
 }: {
   slug: string;
   open: boolean;
   onClose: () => void;
+  extraHeldOrders?: Order[];
+  offlineHeldOps?: OfflineHeldOps;
 }) {
   const toast = useToast();
   const formatMoney = useFormatMoney();
   const { data, isLoading, refetch } = useHeldOrders();
-  const heldOrders = data?.orders ?? [];
+  const heldOrders = useMemo(() => {
+    const byId = new Map<string, Order>();
+    for (const order of data?.orders ?? []) {
+      byId.set(order.id, order);
+    }
+    for (const order of extraHeldOrders) {
+      if (!byId.has(order.id)) byId.set(order.id, order);
+    }
+    return [...byId.values()].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+  }, [data?.orders, extraHeldOrders]);
   const sendToKitchen = useSendOrderToKitchen();
   const updateStatus = useUpdateOrderStatus();
   const [discardTarget, setDiscardTarget] = useState<Order | null>(null);
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 
-  function handlePlace(orderId: string) {
-    sendToKitchen.mutate(orderId, {
+  function handlePlace(order: Order) {
+    if (offlineHeldOps && isDeviceLocalOrder(order)) {
+      setBusyOrderId(order.id);
+      void offlineHeldOps
+        .sendToKitchen(order.id)
+        .then(() => {
+          toast.success('Held order placed');
+          void refetch();
+        })
+        .catch((err) => toast.error(formatApiError(err)))
+        .finally(() => setBusyOrderId(null));
+      return;
+    }
+    sendToKitchen.mutate(order.id, {
       onSuccess: () => {
         toast.success('Held order placed');
         void refetch();
@@ -44,6 +78,19 @@ export function HeldOrdersDrawer({
 
   function confirmDiscard() {
     if (!discardTarget) return;
+    if (offlineHeldOps && isDeviceLocalOrder(discardTarget)) {
+      setBusyOrderId(discardTarget.id);
+      void offlineHeldOps
+        .discard(discardTarget.id)
+        .then(() => {
+          toast.success('Held order discarded');
+          setDiscardTarget(null);
+          void refetch();
+        })
+        .catch((err) => toast.error(formatApiError(err)))
+        .finally(() => setBusyOrderId(null));
+      return;
+    }
     updateStatus.mutate(
       { id: discardTarget.id, status: 'CANCELLED' },
       {
@@ -61,7 +108,7 @@ export function HeldOrdersDrawer({
     <>
       <Drawer open={open} onClose={onClose} title="Held orders" footer={null}>
         <div className="space-y-3">
-          {isLoading && (
+          {isLoading && heldOrders.length === 0 && (
             <p className="text-sm text-on-surface-variant text-center py-8">Loading held orders…</p>
           )}
           {!isLoading && heldOrders.length === 0 && (
@@ -105,8 +152,11 @@ export function HeldOrdersDrawer({
                 <Button
                   variant="secondary"
                   className="!h-8 !text-xs !px-2.5"
-                  loading={sendToKitchen.isPending && sendToKitchen.variables === order.id}
-                  onClick={() => handlePlace(order.id)}
+                  loading={
+                    busyOrderId === order.id ||
+                    (sendToKitchen.isPending && sendToKitchen.variables === order.id)
+                  }
+                  onClick={() => handlePlace(order)}
                 >
                   <Icon name="check" className="text-base" />
                   Place
@@ -137,7 +187,7 @@ export function HeldOrdersDrawer({
         }
         confirmLabel="Discard"
         destructive
-        loading={updateStatus.isPending}
+        loading={updateStatus.isPending || !!busyOrderId}
       />
     </>
   );

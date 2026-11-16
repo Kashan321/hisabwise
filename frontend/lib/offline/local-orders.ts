@@ -5,9 +5,14 @@ import {
   offlineDb,
   type OfflineItemUpdateRecord,
   type OfflineOrderLifecycle,
+  type OfflinePricingUpdateRecord,
   type PendingOfflineOrderRecord,
 } from '@/lib/offline/db';
 import { buildOfflineReceiptOrder, queueOfflineOrder } from '@/lib/offline/sync';
+import {
+  ratesFromCreatePayload,
+  recalculateReceiptOrderTotals,
+} from '@/lib/offline/local-order-pricing';
 import { orderNextStatus } from '@/components/orders/order-badges';
 import { canAddItemsToOpenTab } from '@/lib/open-tab-order';
 
@@ -55,6 +60,18 @@ function isActiveOrder(order: Order) {
   return order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && !order.isDraft;
 }
 
+function isHeldOrder(order: Order) {
+  return Boolean(order.isDraft && !order.sentToKitchenAt && order.status !== 'CANCELLED');
+}
+
+export async function listHeldLocalOrders(scopeKey: string): Promise<Order[]> {
+  const rows = await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray();
+  return rows
+    .map((row) => row.receiptOrder)
+    .filter((order) => isHeldOrder(order))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
 export async function listActiveLocalOrders(scopeKey: string): Promise<Order[]> {
   const rows = await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray();
   return rows
@@ -89,6 +106,11 @@ type PlaceOfflineOrderInput = {
   snapshotLineUnitPrices?: Record<string, string>;
   tableIdentifier?: string | null;
   notes?: string | null;
+  asDraft?: boolean;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  deliveryAddress?: string | null;
+  deliveryNotes?: string | null;
 };
 
 export async function placeOfflineOrder(input: PlaceOfflineOrderInput) {
@@ -96,9 +118,10 @@ export async function placeOfflineOrder(input: PlaceOfflineOrderInput) {
     input.scopeKey,
   );
   const now = new Date().toISOString();
+  const asDraft = input.asDraft ?? false;
   const createPayload = {
     ...input.createPayload,
-    isDraft: false,
+    isDraft: asDraft,
     idempotencyKey: input.idempotencyKey,
     deviceKey,
     offlineTicketNumber,
@@ -119,8 +142,11 @@ export async function placeOfflineOrder(input: PlaceOfflineOrderInput) {
     paymentStatus: 'PENDING',
     createdAt: now,
     notes: input.notes ?? null,
+    isDraft: asDraft,
   });
-  receiptOrder.sentToKitchenAt = now;
+  if (!asDraft) {
+    receiptOrder.sentToKitchenAt = now;
+  }
   if (input.tableIdentifier) {
     receiptOrder.tableIdentifier = input.tableIdentifier;
   }
@@ -128,6 +154,10 @@ export async function placeOfflineOrder(input: PlaceOfflineOrderInput) {
   if (tableId) {
     receiptOrder.tableId = tableId;
   }
+  if (input.customerName) receiptOrder.customerName = input.customerName;
+  if (input.customerPhone) receiptOrder.customerPhone = input.customerPhone;
+  if (input.deliveryAddress) receiptOrder.deliveryAddress = input.deliveryAddress;
+  if (input.deliveryNotes) receiptOrder.deliveryNotes = input.deliveryNotes;
 
   const record: PendingOfflineOrderRecord = {
     id: input.idempotencyKey,
@@ -137,9 +167,11 @@ export async function placeOfflineOrder(input: PlaceOfflineOrderInput) {
     offlineTicketLabel,
     offlineTicketNumber,
     createdAt: now,
-    lifecycle: 'open',
+    lifecycle: asDraft ? 'held' : 'open',
     createPayload,
     itemUpdates: [],
+    itemAdjustments: [],
+    pricingUpdates: [],
     receiptOrder,
   };
 
@@ -267,7 +299,113 @@ export async function cancelLocalOrder(scopeKey: string, orderId: string) {
   await offlineDb.pendingOrders.update(key, {
     lifecycle: 'cancelled',
     receiptOrder,
-    syncStatus: 'pending',
+    syncStatus: row.syncStatus === 'synced' ? 'pending' : row.syncStatus,
   });
   emitQueueChanged();
+}
+
+export async function sendLocalOrderToKitchen(scopeKey: string, orderId: string) {
+  const row = await findPendingRow(scopeKey, orderId);
+  if (!row) {
+    throw new Error('Offline order not found on this device.');
+  }
+  const now = new Date().toISOString();
+  const receiptOrder = {
+    ...row.receiptOrder,
+    isDraft: false,
+    sentToKitchenAt: now,
+    updatedAt: now,
+  } as Order;
+  await offlineDb.pendingOrders.update(row.id, {
+    lifecycle: 'open',
+    replaySendToKitchen: true,
+    createPayload: { ...row.createPayload, isDraft: false },
+    receiptOrder,
+    syncStatus: row.syncStatus === 'synced' ? 'pending' : row.syncStatus,
+  });
+  emitQueueChanged();
+  return receiptOrder;
+}
+
+export async function cancelLocalHeldOrder(scopeKey: string, orderId: string) {
+  return cancelLocalOrder(scopeKey, orderId);
+}
+
+type LocalPricingPatch = OfflinePricingUpdateRecord['patch'];
+
+export async function updateLocalOrderPricing(
+  scopeKey: string,
+  orderId: string,
+  patch: LocalPricingPatch,
+  priced: { subtotal: number; taxAmount: number; serviceAmount: number; totalAmount: number; discountAmount?: number },
+) {
+  const row = await findPendingRow(scopeKey, orderId);
+  if (!row) throw new Error('Offline order not found.');
+  const now = new Date().toISOString();
+  const receiptOrder = {
+    ...row.receiptOrder,
+    subtotal: String(priced.subtotal),
+    taxAmount: String(priced.taxAmount),
+    serviceAmount: String(priced.serviceAmount),
+    totalAmount: String(priced.totalAmount),
+    discountAmount: String(priced.discountAmount ?? row.receiptOrder.discountAmount ?? 0),
+    promotionId: patch.promotionId === undefined ? row.receiptOrder.promotionId : patch.promotionId,
+    notes: patch.notes ?? row.receiptOrder.notes,
+    updatedAt: now,
+  } as Order;
+  await offlineDb.pendingOrders.update(row.id, {
+    pricingUpdates: [
+      ...(row.pricingUpdates ?? []),
+      { appliedAt: now, patch },
+    ],
+    receiptOrder,
+    syncStatus: row.syncStatus === 'synced' ? 'pending' : row.syncStatus,
+  });
+  emitQueueChanged();
+  return receiptOrder;
+}
+
+export async function adjustLocalOrderItemQuantity(
+  scopeKey: string,
+  orderId: string,
+  orderItemId: string,
+  delta: number,
+) {
+  const row = await findPendingRow(scopeKey, orderId);
+  if (!row) throw new Error('Offline order not found.');
+  const items = [...(row.receiptOrder.items ?? [])];
+  const index = items.findIndex((line) => line.id === orderItemId);
+  if (index < 0) throw new Error('Order item not found.');
+  const line = items[index];
+  const nextQty = line.quantity + delta;
+  if (nextQty < 0) throw new Error('Quantity cannot be negative.');
+  if (nextQty === 0 && items.length === 1) {
+    throw new Error('Cannot remove the last item from an order');
+  }
+  const unitPrice = Number(line.unitPrice ?? 0);
+  if (nextQty === 0) {
+    items.splice(index, 1);
+  } else {
+    items[index] = {
+      ...line,
+      quantity: nextQty,
+      lineTotal: String(unitPrice * nextQty),
+    };
+  }
+  const rates = ratesFromCreatePayload(row.createPayload);
+  const receiptOrder = recalculateReceiptOrderTotals(
+    { ...row.receiptOrder, items },
+    rates,
+  );
+  const now = new Date().toISOString();
+  await offlineDb.pendingOrders.update(row.id, {
+    itemAdjustments: [
+      ...(row.itemAdjustments ?? []),
+      { appliedAt: now, clientItemId: orderItemId, menuItemId: line.menuItemId ?? '', delta },
+    ],
+    receiptOrder,
+    syncStatus: row.syncStatus === 'synced' ? 'pending' : row.syncStatus,
+  });
+  emitQueueChanged();
+  return receiptOrder;
 }

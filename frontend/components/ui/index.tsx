@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import Link from 'next/link';
 
 export function Icon({
@@ -257,12 +257,16 @@ export function Input({
   hint,
   className = '',
   dense,
+  id,
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & { label?: string; hint?: string; dense?: boolean }) {
+  const autoId = useId();
+  const inputId = id ?? autoId;
   return (
     <div className={dense ? 'space-y-0.5' : 'space-y-1.5'}>
       {label && (
         <label
+          htmlFor={inputId}
           className={`font-bold text-on-surface-variant block ${
             dense ? 'text-[10px] leading-none' : 'font-caption'
           }`}
@@ -271,6 +275,7 @@ export function Input({
         </label>
       )}
       <input
+        id={inputId}
         className={`w-full h-11 px-4 bg-surface border border-outline-variant/30 rounded-lg font-body-base transition-all focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none ${className}`}
         {...props}
       />

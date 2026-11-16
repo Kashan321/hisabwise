@@ -46,6 +46,7 @@ export function PosLiveOrdersStripe({
   onSelectOrder,
   extraOrders = [],
   offlineOrderOps,
+  suppressApiOrders = false,
 }: {
   slug: string;
   tableMap: Record<string, string>;
@@ -61,6 +62,8 @@ export function PosLiveOrdersStripe({
   /** Active bills stored on device while offline (merged with API list). */
   extraOrders?: Order[];
   offlineOrderOps?: OfflineLocalOrderOps;
+  /** When offline, hide cached API bills so stripe shows device-local orders only. */
+  suppressApiOrders?: boolean;
 }) {
   const toast = useToast();
   const formatMoney = useFormatMoney();
@@ -81,8 +84,10 @@ export function PosLiveOrdersStripe({
 
   const orders = useMemo(() => {
     const byId = new Map<string, Order>();
-    for (const order of data?.orders ?? []) {
-      if (!order.isDraft) byId.set(order.id, order);
+    if (!suppressApiOrders) {
+      for (const order of data?.orders ?? []) {
+        if (!order.isDraft) byId.set(order.id, order);
+      }
     }
     for (const order of extraOrders) {
       if (!order.isDraft && !byId.has(order.id)) byId.set(order.id, order);
@@ -90,7 +95,7 @@ export function PosLiveOrdersStripe({
     return [...byId.values()].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
-  }, [data?.orders, extraOrders]);
+  }, [data?.orders, extraOrders, suppressApiOrders]);
 
   const newestOrderId = orders[orders.length - 1]?.id;
 
