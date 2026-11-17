@@ -37,10 +37,17 @@ import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
 import { installPosRouteFetchCache } from '@/lib/offline/pos-fetch-cache';
 import { hydrateTenantQueriesFromSnapshot } from '@/lib/offline/hydrate-tenant-queries';
 import { usePathname } from 'next/navigation';
+import {
+  isReadyForOffline,
+  probeSwReadiness,
+  type SwReadinessSnapshot,
+} from '@/lib/offline/sw-readiness';
 
 interface OfflinePosContextValue {
   apiReachability: ApiReachability;
   isOfflineMode: boolean;
+  readyForOffline: boolean;
+  swReadiness: SwReadinessSnapshot | null;
   pendingCount: number;
   pendingOrders: PendingOfflineOrderRecord[];
   refreshSnapshot: () => Promise<void>;
@@ -60,11 +67,17 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   );
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOrders, setPendingOrders] = useState<PendingOfflineOrderRecord[]>([]);
+  const [swReadiness, setSwReadiness] = useState<SwReadinessSnapshot | null>(null);
 
   const scopeKey = useMemo(() => {
     if (!user?.businessId || !user?.id) return null;
     return offlineScopeKey(user.businessId, user.id);
   }, [user?.businessId, user?.id]);
+
+  const readyForOffline = useMemo(
+    () => (swReadiness ? isReadyForOffline(swReadiness, { requireSnapshot: !!scopeKey }) : false),
+    [scopeKey, swReadiness],
+  );
 
   const refreshPending = useCallback(async () => {
     if (!scopeKey) return;
@@ -178,6 +191,20 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
   }, [isAuthenticated, scopeKey]);
 
   useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const snap = await probeSwReadiness(scopeKey);
+      if (!cancelled) setSwReadiness(snap);
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 8_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [scopeKey]);
+
+  useEffect(() => {
     if (!isAuthenticated) return;
     const isPosRoute =
       pathname.includes('/orders/new') ||
@@ -194,13 +221,25 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
     () => ({
       apiReachability,
       isOfflineMode: isPosEffectivelyOffline({ apiReachability, browserOnline: !browserOffline }),
+      readyForOffline,
+      swReadiness,
       pendingCount,
       pendingOrders,
       refreshSnapshot,
       syncNow,
       scopeKey,
     }),
-    [apiReachability, browserOffline, pendingCount, pendingOrders, refreshSnapshot, scopeKey, syncNow],
+    [
+      apiReachability,
+      browserOffline,
+      pendingCount,
+      pendingOrders,
+      readyForOffline,
+      refreshSnapshot,
+      scopeKey,
+      swReadiness,
+      syncNow,
+    ],
   );
 
   return <OfflinePosContext.Provider value={value}>{children}</OfflinePosContext.Provider>;
@@ -212,6 +251,8 @@ export function useOfflinePos() {
     return {
       apiReachability: 'online' as ApiReachability,
       isOfflineMode: false,
+      readyForOffline: false,
+      swReadiness: null,
       pendingCount: 0,
       pendingOrders: [],
       refreshSnapshot: async () => undefined,

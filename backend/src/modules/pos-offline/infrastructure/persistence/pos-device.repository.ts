@@ -1,4 +1,9 @@
 import { prisma } from '../../../../shared/database/prisma-client';
+import {
+  assertOfflinePrismaReady,
+  formatOfflinePrismaUserError,
+  OFFLINE_PRISMA_SETUP_MESSAGE,
+} from '../../../../shared/database/verify-offline-prisma';
 
 const TICKET_PREFIX_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -11,14 +16,29 @@ function pickTicketPrefix(ordinal: number): string {
   return `${TICKET_PREFIX_ALPHABET[first]!}${TICKET_PREFIX_ALPHABET[second]!}`.slice(0, 3);
 }
 
+function guardPosDeviceDelegate(): void {
+  const client = prisma as unknown as Record<string, unknown>;
+  if (typeof client.posDevice !== 'object' || client.posDevice == null) {
+    throw new Error(OFFLINE_PRISMA_SETUP_MESSAGE);
+  }
+}
+
 export class PosDeviceRepository {
   async findByDeviceKey(businessId: string, deviceKey: string) {
-    return prisma.posDevice.findUnique({
-      where: { businessId_deviceKey: { businessId, deviceKey } },
-    });
+    guardPosDeviceDelegate();
+    try {
+      return await prisma.posDevice.findUnique({
+        where: { businessId_deviceKey: { businessId, deviceKey } },
+      });
+    } catch (err) {
+      const friendly = formatOfflinePrismaUserError(err);
+      if (friendly) throw new Error(friendly);
+      throw err;
+    }
   }
 
   async registerDevice(businessId: string, deviceKey: string, label?: string | null) {
+    assertOfflinePrismaReady();
     const existing = await this.findByDeviceKey(businessId, deviceKey);
     if (existing) {
       return prisma.posDevice.update({

@@ -64,6 +64,26 @@ async function assertNoDinoAfterReload(page) {
   return { ok: err === 0 && !dino, url: page.url(), err, dino };
 }
 
+/** DevTools-style offline via CDP (differs from Playwright context.setOffline). */
+async function assertNoDinoCdpOfflineReload(page) {
+  const client = await page.context().newCDPSession(page);
+  await client.send('Network.enable');
+  await client.send('Network.emulateNetworkConditions', {
+    offline: true,
+    downloadThroughput: 0,
+    uploadThroughput: 0,
+    latency: 0,
+  });
+  const result = await assertNoDinoAfterReload(page);
+  await client.send('Network.emulateNetworkConditions', {
+    offline: false,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
+    latency: 0,
+  });
+  return result;
+}
+
 async function swAndCacheState(page) {
   return page.evaluate(async () => {
     const reg = await navigator.serviceWorker.getRegistration();
@@ -307,6 +327,31 @@ async function main() {
     sw1.active && (sw1.hasPages || sw1.hasRsc),
     JSON.stringify(sw1),
   );
+
+  try {
+    await page.goto('/offline-status', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForTimeout(2000);
+    const statusText = (await page.locator('main').innerText()) ?? '';
+    record(
+      '1a offline-status page',
+      /offline readiness/i.test(statusText),
+      statusText.slice(0, 120),
+    );
+  } catch (e) {
+    record('1a offline-status page', false, String(e));
+  }
+
+  try {
+    await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    await page.waitForTimeout(2000);
+    const cdpReload = await assertNoDinoCdpOfflineReload(page);
+    await shot(page, 'e2e-01d-cdp-offline-reload.png');
+    record('1d CDP Network.offline hard reload POS', cdpReload.ok, JSON.stringify(cdpReload));
+    await context.setOffline(false);
+  } catch (e) {
+    record('1d CDP Network.offline hard reload POS', false, String(e));
+    await context.setOffline(false);
+  }
 
   try {
     const dash = await context.newPage();
@@ -608,7 +653,7 @@ async function main() {
     await page.waitForTimeout(4000);
     await shot(page, 'e2e-08-round2-online.png');
     await context.setOffline(true);
-  const r2reloadState = await assertNoDinoAfterReload(page);
+    const r2reloadState = await assertNoDinoAfterReload(page);
     await shot(page, 'e2e-10-round2-reload.png');
     await context.setOffline(false);
     await page.waitForTimeout(15_000);

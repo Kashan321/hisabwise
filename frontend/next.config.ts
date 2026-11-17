@@ -37,7 +37,8 @@ function withSerwistWhenProduction(config: NextConfig): NextConfig {
     swSrc: 'app/sw.ts',
     swDest: 'public/sw.js',
     cacheOnNavigation: true,
-    register: true,
+    // Custom registration in SerwistProvider (skipWaiting + first-control reload).
+    register: false,
     reloadOnOnline: false,
     additionalPrecacheEntries: [
       { url: '/offline', revision: '20261116-nav' },

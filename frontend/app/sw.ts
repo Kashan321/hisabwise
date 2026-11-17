@@ -19,7 +19,10 @@ function isSameOriginAppUrl(url: URL): boolean {
 }
 
 function isNavigate(request: Request): boolean {
-  return request.mode === 'navigate';
+  return (
+    request.mode === 'navigate' ||
+    (request.method === 'GET' && request.destination === 'document')
+  );
 }
 
 function isRscRequest(request: Request): boolean {
@@ -248,12 +251,24 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_next/')) return;
 
   if (isNavigate(request)) {
-    fetchEvent.respondWith(offlineNavigateResponse(request));
+    fetchEvent.respondWith(
+      offlineNavigateResponse(request).catch(
+        () =>
+          new Response(
+            '<!DOCTYPE html><html><body><p>Offline — reload once while online to enable caching.</p></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+          ),
+      ),
+    );
     return;
   }
 
   if (isRscRequest(request)) {
-    fetchEvent.respondWith(offlineRscResponse(request));
+    fetchEvent.respondWith(
+      offlineRscResponse(request).catch(
+        () => new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } }),
+      ),
+    );
     return;
   }
 });

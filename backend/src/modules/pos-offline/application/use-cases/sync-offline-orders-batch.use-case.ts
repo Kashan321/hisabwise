@@ -3,6 +3,7 @@ import { ordersModule } from '../../../orders/infrastructure/orders.module';
 import { CreateOrderInput, CompleteOrderInput } from '../../../orders/domain/entities/order.entity';
 import { posDeviceRepository } from '../../infrastructure/persistence/pos-device.repository';
 import type { SyncOfflineOrderInput } from '../../presentation/http/pos-offline.validators';
+import { formatOfflinePrismaUserError } from '../../../../shared/database/verify-offline-prisma';
 
 export type SyncOfflineOrderResult = {
   idempotencyKey: string;
@@ -236,7 +237,9 @@ export class SyncOfflineOrdersBatchUseCase {
           syncConflictFlags: (conflictFlags as Record<string, unknown>) ?? null,
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Sync failed';
+        const message =
+          formatOfflinePrismaUserError(err) ??
+          (err instanceof Error ? err.message : 'Sync failed');
         const existing = await ordersModule.getOrderByIdempotencyKey.execute(
           businessId,
           item.idempotencyKey,
