@@ -448,7 +448,7 @@ async function main() {
     await live.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
     await live.waitForTimeout(2500);
     const liveText = ((await live.locator('main, [class*="tenant"]').first().innerText()) ?? '').toLowerCase();
-  const liveHasTicket = /received/.test(liveText) && (liveText.includes('a-') || liveText.includes('offline'));
+    const liveHasTicket = /received/.test(liveText) && (liveText.includes('a-') || liveText.includes('offline'));
     await shot(live, 'e2e-02c-live-orders-offline.png');
     record('2c offline order visible on Live Orders', liveHasTicket, liveText.slice(0, 180));
     await live.goto(`${BASE}/${SLUG}/kitchen`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
