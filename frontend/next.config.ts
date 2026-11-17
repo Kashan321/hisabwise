@@ -41,9 +41,9 @@ function withSerwistWhenProduction(config: NextConfig): NextConfig {
     register: false,
     reloadOnOnline: false,
     additionalPrecacheEntries: [
-      { url: '/offline', revision: '20261116-nav' },
-      { url: '/offline-pos', revision: '20261116-nav' },
-      { url: '/login', revision: '20261116-nav' },
+      { url: '/offline', revision: '20261117-rsc-split' },
+      { url: '/offline-pos', revision: '20261117-rsc-split' },
+      { url: '/login', revision: '20261117-rsc-split' },
     ],
   })(config);
 }

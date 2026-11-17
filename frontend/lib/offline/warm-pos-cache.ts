@@ -1,9 +1,11 @@
 import { rememberLastPosUrl } from '@/lib/offline/pos-shell-storage';
-
-import { HTML_PAGES_CACHE, POS_ROUTE_CACHE, RSC_PAGES_CACHE } from '@/lib/offline/sw-cache-names';
-
-const PAGES_CACHE = HTML_PAGES_CACHE;
-const RSC_CACHE = RSC_PAGES_CACHE;
+import {
+  documentCacheKey,
+  isHtmlContentType,
+  isRscContentType,
+  rscCacheKey,
+} from '@/lib/offline/cache-flight';
+import { HTML_PAGES_CACHE, RSC_PAGES_CACHE } from '@/lib/offline/sw-cache-names';
 
 function normalizeDocumentUrl(href: string) {
   const url = new URL(href, typeof window !== 'undefined' ? window.location.origin : undefined);
@@ -11,27 +13,36 @@ function normalizeDocumentUrl(href: string) {
   return url.href;
 }
 
-async function putInCache(cacheName: string, requestUrl: string, response: Response) {
+async function putHtmlOnly(cacheName: string, requestUrl: string, response: Response) {
   if (!response.ok || response.redirected) return;
+  const ct = response.headers.get('content-type') ?? '';
+  if (!isHtmlContentType(ct) || isRscContentType(ct)) return;
   const cache = await caches.open(cacheName);
   const body = await response.blob();
   const url = new URL(requestUrl);
-  const pathnameOnly = `${url.origin}${url.pathname}`;
-  const keys = [requestUrl, pathnameOnly];
-  for (const key of keys) {
-    await cache.put(
-      key,
-      new Response(body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      }),
-    );
-  }
+  const pathnameOnly = documentCacheKey(url);
+  const stored = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  await cache.put(requestUrl, stored.clone());
+  await cache.put(pathnameOnly, stored);
 }
 
-function pathnameOnly(url: URL) {
-  return `${url.origin}${url.pathname}`;
+async function putRscOnly(requestUrl: string, response: Response, headers: Record<string, string>) {
+  if (!response.ok) return;
+  const ct = response.headers.get('content-type') ?? '';
+  if (!isRscContentType(ct) && !ct.includes('text/plain')) return;
+  const cache = await caches.open(RSC_PAGES_CACHE);
+  const body = await response.blob();
+  const stored = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  await cache.put(rscCacheKey(requestUrl, headers), stored.clone());
+  await cache.put(requestUrl, stored);
 }
 
 async function warmRscVariants(documentUrl: string) {
@@ -49,8 +60,7 @@ async function warmRscVariants(documentUrl: string) {
         headers,
       });
       if (rscResponse.ok) {
-        await putInCache(RSC_CACHE, documentUrl, rscResponse);
-        await putInCache(POS_ROUTE_CACHE, documentUrl, rscResponse);
+        await putRscOnly(documentUrl, rscResponse, headers);
         const controller = navigator.serviceWorker?.controller;
         controller?.postMessage({
           type: 'CACHE_POS_RSC',
@@ -63,14 +73,14 @@ async function warmRscVariants(documentUrl: string) {
     }
   }
 
-  const rscQuery = `${pathnameOnly(url)}?_rsc=${Date.now().toString(36)}`;
+  const rscQuery = `${documentCacheKey(url)}?_rsc=${Date.now().toString(36)}`;
   try {
     const rscResponse = await fetch(rscQuery, {
       credentials: 'same-origin',
       headers: { RSC: '1' },
     });
     if (rscResponse.ok) {
-      await putInCache(POS_ROUTE_CACHE, rscQuery, rscResponse);
+      await putRscOnly(rscQuery, rscResponse, { RSC: '1' });
     }
   } catch {
     /* ignore */
@@ -88,9 +98,9 @@ export async function warmTenantShellCache(pathname: string, href?: string) {
     const docResponse = await fetch(documentUrl, {
       credentials: 'same-origin',
       cache: 'no-cache',
+      headers: { Accept: 'text/html' },
     });
-    await putInCache(PAGES_CACHE, documentUrl, docResponse);
-    await putInCache(POS_ROUTE_CACHE, documentUrl, docResponse);
+    await putHtmlOnly(HTML_PAGES_CACHE, documentUrl, docResponse);
   } catch {
     /* ignore */
   }
@@ -100,7 +110,7 @@ export async function warmTenantShellCache(pathname: string, href?: string) {
   const controller = navigator.serviceWorker?.controller;
   if (controller) {
     controller.postMessage({ type: 'CACHE_POS_URL', url: documentUrl });
-    const pathnameOnly = new URL(documentUrl).origin + new URL(documentUrl).pathname;
+    const pathnameOnly = documentCacheKey(new URL(documentUrl));
     if (pathnameOnly !== documentUrl) {
       controller.postMessage({ type: 'CACHE_POS_URL', url: pathnameOnly });
     }
@@ -126,10 +136,7 @@ export function startTenantRscCapture(slug: string) {
       void fetch(res.name, { credentials: 'same-origin', headers: { RSC: '1' } })
         .then(async (response) => {
           if (!response.ok) return;
-          const posCache = await caches.open(POS_ROUTE_CACHE);
-          await posCache.put(res.name, response);
-          const rscCache = await caches.open(RSC_CACHE);
-          await rscCache.put(res.name, response);
+          await putRscOnly(res.name, response, { RSC: '1' });
         })
         .catch(() => undefined);
     }

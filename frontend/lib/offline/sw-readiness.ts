@@ -1,4 +1,5 @@
 /** Diagnostics for service worker + shell caches used by offline POS. */
+import { HTML_PAGES_CACHE, RSC_PAGES_CACHE } from '@/lib/offline/sw-cache-names';
 
 export type SwReadinessSnapshot = {
   serviceWorkerSupported: boolean;
@@ -35,7 +36,7 @@ export async function probeSwReadiness(scopeKey: string | null): Promise<SwReadi
   const cacheKeys =
     typeof caches !== 'undefined' ? (await caches.keys()).sort((a, b) => a.localeCompare(b)) : [];
   const shellCacheCounts: Record<string, number> = {};
-  for (const name of ['pages', 'pos-route-all', 'pages-rsc', 'precache']) {
+  for (const name of [HTML_PAGES_CACHE, RSC_PAGES_CACHE, 'precache']) {
     if (!cacheKeys.includes(name)) continue;
     const cache = await caches.open(name);
     shellCacheCounts[name] = (await cache.keys()).length;
@@ -58,7 +59,7 @@ export async function probeSwReadiness(scopeKey: string | null): Promise<SwReadi
       }
     }
     if (!hit) {
-      for (const cacheName of ['pages', 'pos-route-all']) {
+      for (const cacheName of [HTML_PAGES_CACHE]) {
         if (!cacheKeys.includes(cacheName)) continue;
         const cache = await caches.open(cacheName);
         const absolute = new URL(path, window.location.origin).href;
@@ -111,8 +112,7 @@ export function isReadyForOffline(
   const requireSnapshot = options?.requireSnapshot ?? true;
   if (!snap.serviceWorkerSupported || !snap.controllerPresent) return false;
   const hasHtmlShell =
-    (snap.shellCacheCounts.pages ?? 0) > 0 ||
-    (snap.shellCacheCounts['pos-route-all'] ?? 0) > 0 ||
+    (snap.shellCacheCounts[HTML_PAGES_CACHE] ?? 0) > 0 ||
     Object.values(snap.precacheShellHits).some(Boolean);
   if (!hasHtmlShell) return false;
   if (requireSnapshot && !snap.indexedDbSnapshotPresent) return false;

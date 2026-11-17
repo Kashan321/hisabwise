@@ -134,6 +134,111 @@ async function assertNoDinoCdpOfflineReload(page) {
   return result;
 }
 
+const HTML_CACHE_NAME = 'pages-v20261117';
+const RSC_CACHE_NAME = 'pages-rsc-v20261117';
+
+const SIDEBAR_TABS = [
+  { label: 'Overview', href: 'dashboard', heading: /overview/i },
+  { label: 'Live Orders', href: 'orders', heading: /live orders/i },
+  { label: 'New Order', href: 'orders/new', heading: /new order|place order|menu/i },
+  { label: 'Kitchen', href: 'kitchen', heading: /kitchen/i },
+  { label: 'Menu Editor', href: 'menu', heading: /menu editor/i },
+  { label: 'Inventory', href: 'inventory', heading: /inventory/i },
+  { label: 'Floor Plan', href: 'floor-plan', heading: /floor/i },
+  { label: 'Reports', href: 'reports', heading: /reports/i },
+  { label: 'Staff', href: 'staff', heading: /staff/i },
+  { label: 'Settings', href: 'settings', heading: /settings/i },
+];
+
+async function assertBodyNotRscFlight(page) {
+  const text = ((await page.locator('body').innerText()) ?? '').trim();
+  if (/^[0-9]+:\{/.test(text)) return false;
+  if (text.startsWith('0:["')) return false;
+  return text.length > 0;
+}
+
+function sidebarLink(page, label, scope = 'nav') {
+  const root = scope === 'all' ? page.locator('aside') : page.locator('aside nav');
+  return root.locator('a').filter({ hasText: label }).first();
+}
+
+async function ensureSidebarReady(page, slug) {
+  const ordersUrl = `${BASE}/${slug}/orders`;
+  await page.evaluate(() => {
+    localStorage.setItem('venta-sidebar-open', 'true');
+  });
+  await page.goto(ordersUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.locator('aside a').first().waitFor({ state: 'attached', timeout: 60_000 });
+  const live = sidebarLink(page, 'Live Orders');
+  await live.waitFor({ state: 'attached', timeout: 30_000 });
+  if (!(await live.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: /^Open menu$/i }).click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+}
+
+async function warmSidebarRoutes(page, slug) {
+  for (const tab of SIDEBAR_TABS) {
+    await page.evaluate(() => localStorage.setItem('venta-sidebar-open', 'true'));
+    const url = `${BASE}/${slug}/${tab.href}`;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await page.waitForTimeout(1200);
+    await ensureSidebarReady(page, slug).catch(() => undefined);
+  }
+}
+
+async function purgeLegacyCachesViaSw(page) {
+  await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    reg?.active?.postMessage({ type: 'PURGE_LEGACY_CACHES' });
+    await new Promise((r) => setTimeout(r, 500));
+  });
+}
+
+async function seedPoisonedLegacyPagesCache(page, slug) {
+  const poison =
+    '0:{"f":[[["",{"children":[["slug","cafe","d",null],{"children":["dashboard"]}]]],"b":"ES8G81LgNDZ53wf9vQXCx"}';
+  await page.evaluate(
+    async ({ slug, poison }) => {
+      const segments = ['dashboard', 'menu', 'kitchen', 'inventory', 'settings'];
+      for (const cacheName of ['pages', 'pos-route-all', 'pages-rsc']) {
+        const cache = await caches.open(cacheName);
+        for (const seg of segments) {
+          const pathKey = `${location.origin}/${slug}/${seg}`;
+          const res = new Response(poison, { headers: { 'Content-Type': 'text/x-component' } });
+          await cache.put(pathKey, res.clone());
+        }
+      }
+    },
+    { slug, poison },
+  );
+}
+
+async function tourSidebarTabs(page, slug) {
+  await ensureSidebarReady(page, slug);
+  const failures = [];
+  for (const tab of SIDEBAR_TABS) {
+    await ensureSidebarReady(page, slug).catch(() => undefined);
+    const scope = tab.href === 'orders/new' ? 'all' : 'nav';
+    const link = sidebarLink(page, tab.label, scope);
+    if (!(await link.count())) {
+      failures.push(`${tab.href}:missing-link`);
+      continue;
+    }
+    await link.click({ timeout: 25_000, force: true });
+    await page.waitForTimeout(2000);
+    const onRoute = page.url().includes(`/${slug}/${tab.href}`);
+    const okBody = await assertBodyNotRscFlight(page);
+    const headingOk = (await page.getByText(tab.heading).count()) > 0;
+    if (!onRoute || !okBody || !headingOk) {
+      failures.push(
+        `${tab.href}:onRoute=${onRoute}:body=${okBody}:heading=${headingOk}:${page.url().slice(0, 80)}`,
+      );
+    }
+  }
+  return failures;
+}
+
 async function swAndCacheState(page) {
   return page.evaluate(async () => {
     const reg = await navigator.serviceWorker.getRegistration();
@@ -144,9 +249,12 @@ async function swAndCacheState(page) {
       const c = await caches.open(name);
       counts[name] = (await c.keys()).length;
     }
-    const hasPages = (counts.pages ?? 0) > 0;
-    const hasRsc = (counts['pages-rsc'] ?? 0) > 0;
-    return { active, counts, hasPages, hasRsc };
+    const htmlName = 'pages-v20261117';
+    const rscName = 'pages-rsc-v20261117';
+    const hasPages = (counts[htmlName] ?? 0) > 0;
+    const hasRsc = (counts[rscName] ?? 0) > 0;
+    const legacyPages = (counts.pages ?? 0) > 0;
+    return { active, counts, hasPages, hasRsc, legacyPages };
   });
 }
 
@@ -411,6 +519,68 @@ async function main() {
     sw1.active && (sw1.hasPages || sw1.hasRsc),
     JSON.stringify(sw1),
   );
+
+  try {
+    await warmSidebarRoutes(page, SLUG);
+    await ensureSidebarReady(page, SLUG);
+    const onlineFails = await tourSidebarTabs(page, SLUG);
+    await shot(page, 'e2e-01g-sidebar-online.png');
+    record(
+      '1g sidebar tabs online (no RSC body)',
+      onlineFails.length === 0,
+      onlineFails.join('; ') || 'ok',
+    );
+    await context.setOffline(true);
+    await page.waitForTimeout(800);
+    const offlineFails = await tourSidebarTabs(page, SLUG);
+    await shot(page, 'e2e-01h-sidebar-offline.png');
+    record(
+      '1h sidebar tabs offline (no RSC body)',
+      offlineFails.length === 0,
+      offlineFails.join('; ') || 'ok',
+    );
+    await context.setOffline(false);
+    await page.waitForTimeout(500);
+    await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await waitForPosMenu(page, MENU_ITEM_NAME, 60_000);
+  } catch (e) {
+    await context.setOffline(false);
+    record('1g sidebar tabs online (no RSC body)', false, String(e));
+    record('1h sidebar tabs offline (no RSC body)', false, String(e));
+  }
+
+  try {
+    await seedPoisonedLegacyPagesCache(page, SLUG);
+    const legacyBefore = await page.evaluate(async ({ slug }) => {
+      const cache = await caches.open('pages');
+      const hit = await cache.match(`${location.origin}/${slug}/menu`);
+      return {
+        hasLegacy: (await caches.keys()).includes('pages'),
+        poisonBody: hit ? (await hit.text()).slice(0, 12) : null,
+      };
+    }, { slug: SLUG });
+    await purgeLegacyCachesViaSw(page);
+    await page.waitForTimeout(800);
+    const legacyAfter = await page.evaluate(async () => ({
+      hasLegacyPages: (await caches.keys()).includes('pages'),
+    }));
+    await context.setOffline(true);
+    await page.goto(`${BASE}/${SLUG}/menu`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await page.waitForTimeout(2500);
+    const healed = await assertBodyNotRscFlight(page);
+    const menuHeading = (await page.getByText(/menu editor/i).count()) > 0;
+    await shot(page, 'e2e-01f-poison-self-heal.png');
+    record(
+      '1f poisoned legacy pages cache self-heals on SW activate',
+      legacyBefore.hasLegacy && legacyAfter.hasLegacyPages === false && healed && menuHeading,
+      JSON.stringify({ legacyBefore, legacyAfter, healed, menuHeading }),
+    );
+    await context.setOffline(false);
+    await page.waitForTimeout(500);
+  } catch (e) {
+    await context.setOffline(false);
+    record('1f poisoned legacy pages cache self-heals on SW activate', false, String(e));
+  }
 
   try {
     await page.goto(`${BASE}/offline-status`, { waitUntil: 'domcontentloaded', timeout: 60_000 });

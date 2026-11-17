@@ -1,5 +1,15 @@
-const POS_FETCH_CACHE = 'pos-route-explicit';
-const RSC_CACHE = 'pages-rsc';
+import {
+  documentCacheKey,
+  headerMap,
+  isHtmlContentType,
+  isRscContentType,
+  isRscFetch,
+  isValidCachedHtml,
+  isValidCachedRsc,
+  rscCacheKey,
+} from '@/lib/offline/cache-flight';
+import { HTML_PAGES_CACHE, RSC_PAGES_CACHE } from '@/lib/offline/sw-cache-names';
+
 let installed = false;
 
 function resolveRequestUrl(input: RequestInfo | URL, init?: RequestInit): string | null {
@@ -16,35 +26,68 @@ function resolveRequestUrl(input: RequestInfo | URL, init?: RequestInit): string
   }
 }
 
-function headerRecord(init?: RequestInit): Record<string, string> {
-  if (!init?.headers) return {};
-  if (init.headers instanceof Headers) {
-    return Object.fromEntries(init.headers.entries());
-  }
-  return init.headers as Record<string, string>;
+function isTenantAppPath(pathname: string): boolean {
+  if (pathname.startsWith('/platform') || pathname.startsWith('/api')) return false;
+  return /^\/[^/]+\/[^/]+/.test(pathname) || pathname === '/login';
 }
 
-function isRscRequest(url: string, init?: RequestInit) {
-  const headers = headerRecord(init);
-  if (headers.RSC === '1') return true;
-  return url.includes('_rsc=');
-}
-
-async function readFromOfflineCaches(url: string) {
+async function readCachedHtml(url: string): Promise<Response | null> {
   const parsed = new URL(url);
-  const pathnameKey = `${parsed.origin}${parsed.pathname}`;
-  for (const cacheName of [POS_FETCH_CACHE, RSC_CACHE, 'pages', 'pos-route-all']) {
-    const cache = await caches.open(cacheName);
-    const hit =
-      (await cache.match(url)) ?? (await cache.match(pathnameKey, { ignoreSearch: true }));
-    if (hit) return hit;
+  const pathnameKey = documentCacheKey(parsed);
+  const cache = await caches.open(HTML_PAGES_CACHE);
+  for (const key of [url, pathnameKey]) {
+    const hit = await cache.match(key, { ignoreVary: false });
+    if (hit && isValidCachedHtml(hit)) return hit;
   }
   return null;
 }
 
-function isTenantAppPath(pathname: string): boolean {
-  if (pathname.startsWith('/platform') || pathname.startsWith('/api')) return false;
-  return /^\/[^/]+\/[^/]+/.test(pathname) || pathname === '/login';
+async function readCachedRsc(url: string, init?: RequestInit): Promise<Response | null> {
+  const headers = headerMap(init);
+  const cache = await caches.open(RSC_PAGES_CACHE);
+  const keys = [rscCacheKey(url, headers), url];
+  const parsed = new URL(url);
+  keys.push(`${parsed.origin}${parsed.pathname}${parsed.search}`);
+  for (const key of keys) {
+    const hit = await cache.match(key, { ignoreVary: false });
+    if (hit && isValidCachedRsc(hit)) return hit;
+  }
+  return null;
+}
+
+async function putHtmlCache(url: string, response: Response) {
+  const ct = response.headers.get('content-type') ?? '';
+  if (!isHtmlContentType(ct) || isRscContentType(ct)) return;
+  const parsed = new URL(url);
+  const pathnameKey = documentCacheKey(parsed);
+  const body = await response.clone().blob();
+  const cache = await caches.open(HTML_PAGES_CACHE);
+  const stored = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  await cache.put(url, stored.clone());
+  await cache.put(pathnameKey, stored);
+}
+
+async function putRscCache(url: string, response: Response, init?: RequestInit) {
+  const ct = response.headers.get('content-type') ?? '';
+  if (!isRscContentType(ct) && !ct.includes('text/plain')) return;
+  const headers = headerMap(init);
+  const body = await response.clone().blob();
+  const cache = await caches.open(RSC_PAGES_CACHE);
+  const stored = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  const keys = new Set([rscCacheKey(url, headers), url]);
+  const parsed = new URL(url);
+  keys.add(`${parsed.origin}${parsed.pathname}${parsed.search}`);
+  for (const key of keys) {
+    await cache.put(key, stored.clone());
+  }
 }
 
 async function persistOnlineResponse(url: string, response: Response, init?: RequestInit) {
@@ -53,36 +96,16 @@ async function persistOnlineResponse(url: string, response: Response, init?: Req
   if (parsed.pathname.startsWith('/api/')) return;
   if (!isTenantAppPath(parsed.pathname) && parsed.pathname !== '/login') return;
 
-  const isRsc = isRscRequest(url, init) || url.includes('_rsc');
-  const contentType = response.headers.get('content-type') ?? '';
-  const isHtmlDocument =
-    !isRsc && contentType.includes('text/html') && response.type !== 'cors';
-
-  const cachesToWrite: string[] = [];
-  if (isRsc) {
-    cachesToWrite.push(RSC_CACHE, POS_FETCH_CACHE, 'pos-route-all');
-  } else if (isHtmlDocument) {
-    cachesToWrite.push('pages', POS_FETCH_CACHE, 'pos-route-all');
-  } else if (isTenantAppPath(parsed.pathname)) {
-    cachesToWrite.push(RSC_CACHE);
-  } else {
+  const headers = headerMap(init);
+  if (isRscFetch(url, headers)) {
+    await putRscCache(url, response, init);
     return;
   }
 
-  const body = await response.clone().blob();
-  const pathnameKey = `${parsed.origin}${parsed.pathname}`;
-  for (const cacheName of cachesToWrite) {
-    const cache = await caches.open(cacheName);
-    for (const key of [url, pathnameKey]) {
-      await cache.put(
-        key,
-        new Response(body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        }),
-      );
-    }
+  const accept = headers.Accept ?? '';
+  const isDocFetch = accept.includes('text/html') || (!headers.RSC && !url.includes('_rsc='));
+  if (isDocFetch && isHtmlContentType(response.headers.get('content-type'))) {
+    await putHtmlCache(url, response);
   }
 }
 
@@ -95,13 +118,15 @@ export function installPosRouteFetchCache() {
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = resolveRequestUrl(input, init);
-  try {
+    const headers = headerMap(init);
+    const rsc = url ? isRscFetch(url, headers) : false;
+    try {
       const response = await original(input, init);
       if (url) await persistOnlineResponse(url, response, init);
       return response;
     } catch (err) {
       if (!navigator.onLine && url) {
-        const hit = await readFromOfflineCaches(url);
+        const hit = rsc ? await readCachedRsc(url, init) : await readCachedHtml(url);
         if (hit) return hit;
       }
       throw err;
