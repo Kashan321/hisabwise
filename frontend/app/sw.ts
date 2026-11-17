@@ -50,6 +50,11 @@ function isPosRelatedPath(pathname: string): boolean {
   return isNewOrderShellPath(pathname) || isTenantShellPath(pathname);
 }
 
+function isHtmlDocumentResponse(response: Response): boolean {
+  const type = response.headers.get('content-type') ?? '';
+  return type.includes('text/html');
+}
+
 async function readCachedDocument(request: Request, url: URL): Promise<Response | undefined> {
   const pathnameKey = `${url.origin}${url.pathname}`;
   const cachesToTry = [HTML_CACHE, POS_ROUTE_CACHE];
@@ -59,7 +64,7 @@ async function readCachedDocument(request: Request, url: URL): Promise<Response 
       (await cache.match(request, { ignoreSearch: true })) ??
       (await cache.match(pathnameKey, { ignoreSearch: true })) ??
       (await cache.match(request.url, { ignoreSearch: true }));
-    if (hit) return hit;
+    if (hit && isHtmlDocumentResponse(hit)) return hit;
   }
   return undefined;
 }

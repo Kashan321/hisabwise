@@ -15,7 +15,10 @@ export function usePendingOrdersForScope(scopeKey: string | null) {
       setRows([]);
       return;
     }
-    const load = async () => setRows(await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray());
+    const load = async () => {
+      await offlineDb.open().catch(() => undefined);
+      setRows(await offlineDb.pendingOrders.where('scopeKey').equals(scopeKey).toArray());
+    };
     void load();
     const onChange = () => void load();
     window.addEventListener('hisabwise:offline-queue-changed', onChange);

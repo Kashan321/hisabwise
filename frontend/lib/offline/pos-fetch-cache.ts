@@ -53,11 +53,16 @@ async function persistOnlineResponse(url: string, response: Response, init?: Req
   if (parsed.pathname.startsWith('/api/')) return;
   if (!isTenantAppPath(parsed.pathname) && parsed.pathname !== '/login') return;
 
+  const isRsc = isRscRequest(url, init) || url.includes('_rsc');
+  const contentType = response.headers.get('content-type') ?? '';
+  const isHtmlDocument =
+    !isRsc && contentType.includes('text/html') && response.type !== 'cors';
+
   const cachesToWrite: string[] = [];
-  if (isRscRequest(url, init) || url.includes('_rsc')) {
-    cachesToWrite.push(RSC_CACHE, POS_FETCH_CACHE, 'pos-route-all', 'pages');
-  } else if (parsed.pathname.includes('/orders/new')) {
-    cachesToWrite.push(POS_FETCH_CACHE, 'pages', 'pos-route-all');
+  if (isRsc) {
+    cachesToWrite.push(RSC_CACHE, POS_FETCH_CACHE, 'pos-route-all');
+  } else if (isHtmlDocument) {
+    cachesToWrite.push('pages', POS_FETCH_CACHE, 'pos-route-all');
   } else if (isTenantAppPath(parsed.pathname)) {
     cachesToWrite.push(RSC_CACHE);
   } else {

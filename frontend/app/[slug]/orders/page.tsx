@@ -76,6 +76,8 @@ import { useOfflinePos } from '@/components/offline/offline-pos-provider';
 import { useMergedOrdersList } from '@/lib/hooks/use-merged-orders-list';
 import { useOfflineOrderOps } from '@/lib/hooks/use-offline-order-ops';
 import { isDeviceLocalOrder } from '@/lib/offline/local-orders';
+import { useAuth } from '@/lib/auth/auth-context';
+import { offlineScopeKey } from '@/lib/offline/db';
 
 type Tab = OrderListFilters['statusGroup'];
 type BusyAction = { orderId: string; type: 'print' | 'status' } | null;
@@ -302,8 +304,11 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
 
   const { data: ordersData, isLoading, isFetching, error: ordersError } = useOrders(queryFilters);
   const { data: filterMeta } = useOrderFilters();
+  const { user } = useAuth();
   const offlinePos = useOfflinePos();
-  const offlineOrderOps = useOfflineOrderOps(offlinePos.scopeKey);
+  const offlineScope =
+    user?.businessId && user?.id ? offlineScopeKey(user.businessId, user.id) : offlinePos.scopeKey;
+  const offlineOrderOps = useOfflineOrderOps(offlineScope);
   const [browserOffline, setBrowserOffline] = useState(
     () => typeof navigator !== 'undefined' && !navigator.onLine,
   );
@@ -320,7 +325,7 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const apiOrders = ordersData?.orders ?? [];
   const orders = useMergedOrdersList(
     apiOrders,
-    offlinePos.scopeKey,
+    offlineScope,
     {
       statusGroup: tab,
       dateFrom: appliedFilters.dateFrom,
@@ -386,7 +391,8 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
 
   const { data: activityPreview, isLoading: activityLoading } = useTenantAuditLogs({ limit: 5 });
   const recentActivity = activityPreview?.logs ?? [];
-  const showOrdersSkeleton = isLoading && !ordersData && !ordersError;
+  const showOrdersSkeleton =
+    isLoading && !ordersData && !ordersError && orders.length === 0;
 
   const menuItems = categories
     .flatMap((c) => c.items ?? [])

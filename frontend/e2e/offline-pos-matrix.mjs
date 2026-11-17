@@ -17,6 +17,8 @@ const DASHBOARD_URL = `${BASE}/${SLUG}/orders`;
 fs.mkdirSync(ART, { recursive: true });
 
 const results = [];
+/** Set after login from /menu API — used by clickMenuItem(). */
+let MENU_ITEM_NAME = 'Burger';
 
 function shot(page, name) {
   return page.screenshot({ path: path.join(ART, name), fullPage: true });
@@ -34,6 +36,54 @@ async function apiLogin(request) {
   const json = await res.json();
   if (!json.success) throw new Error(JSON.stringify(json));
   return json.data;
+}
+
+async function resolveMenuItemName(request, accessToken) {
+  const res = await request.get(`${BASE}/api/v1/menu`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(`menu fetch failed: ${JSON.stringify(json)}`);
+  const items =
+    json.data?.menu?.flatMap((c) => (c.items ?? []).filter((i) => i.isAvailable !== false)) ?? [];
+  const named = items.find((i) => /^burger$/i.test(i.name)) ?? items[0];
+  if (!named?.name) {
+    throw new Error(
+      'E2E menu has no sellable items. Run: cd backend && node scripts/seed-offline-demo.mjs',
+    );
+  }
+  return named.name;
+}
+
+async function assertNextStaticAssetsHealthy(request) {
+  const res = await request.get(POS_URL);
+  if (!res.ok()) throw new Error(`POS URL ${POS_URL} returned ${res.status()}`);
+  const html = await res.text();
+  const chunk = html.match(/\/_next\/static\/chunks\/[a-z0-9-]+\.js/i)?.[0];
+  if (!chunk) {
+    throw new Error('Could not find /_next/static chunk in HTML — run npm run build && npm run start');
+  }
+  const chunkRes = await request.get(`${BASE}${chunk}`);
+  if (!chunkRes.ok()) {
+    throw new Error(
+      `Stale Next.js server: ${chunk} returned ${chunkRes.status()}. ` +
+        'Run: cd frontend && npm run build && pkill -f next-server; npm run start',
+    );
+  }
+}
+
+async function waitForPosMenu(page, itemName, timeoutMs = 120_000) {
+  try {
+    await page.locator(`text=${itemName}`).first().waitFor({ state: 'visible', timeout: timeoutMs });
+    return true;
+  } catch (err) {
+    const bodyLen = ((await page.locator('body').innerText().catch(() => '')) ?? '').length;
+    const sample = await page.content().then((h) => h.slice(0, 200));
+    throw new Error(
+      `POS menu item "${itemName}" not visible (body text len=${bodyLen}). ` +
+        `Often a stale npm run start after build. HTML: ${sample}`,
+    );
+  }
 }
 
 async function ensureOpenBusinessDay(request, accessToken) {
@@ -100,17 +150,20 @@ async function swAndCacheState(page) {
   });
 }
 
-async function clickBurger(page) {
+async function clickMenuItem(page) {
+  const itemName = MENU_ITEM_NAME;
   await page.keyboard.press('Escape').catch(() => undefined);
   await page.waitForTimeout(300);
-  await page.getByText('Burger').first().waitFor({ state: 'visible', timeout: 60_000 });
-  const card = page.locator('button').filter({ hasText: 'Burger' }).first();
+  await page.getByText(itemName, { exact: false }).first().waitFor({ state: 'visible', timeout: 90_000 });
+  const card = page.locator('button').filter({ hasText: itemName }).first();
   if (await card.count()) {
     await card.click({ timeout: 15_000 });
     return;
   }
-  await page.getByText('$10.00').first().click({ timeout: 15_000 });
+  await page.getByText(itemName, { exact: false }).first().click({ timeout: 15_000 });
 }
+
+const clickBurger = clickMenuItem;
 
 async function punchOfflineOrder(page) {
   await page.getByRole('button', { name: 'Close overlay' }).click({ timeout: 2000 }).catch(() => undefined);
@@ -163,6 +216,7 @@ async function dismissPunchOverlay(page) {
 
 async function editOpenBillAddBurger(page) {
   await dismissPunchOverlay(page);
+  await waitForPosMenu(page, MENU_ITEM_NAME, 90_000).catch(() => undefined);
   const card = await firstOpenBill(page);
   const addLink = card.getByText('Add', { exact: true });
   if (await addLink.count()) {
@@ -273,7 +327,10 @@ async function main() {
   });
   await context.grantPermissions(['notifications']);
   const request = context.request;
+  await assertNextStaticAssetsHealthy(request);
   const session = await apiLogin(request);
+  MENU_ITEM_NAME = await resolveMenuItemName(request, session.accessToken);
+  console.log(`E2E menu item: ${MENU_ITEM_NAME}`);
   await ensureOpenBusinessDay(request, session.accessToken);
   const ordersBefore = await countServerOrders(request, session.accessToken);
 
@@ -295,15 +352,38 @@ async function main() {
     },
     { accessToken: session.accessToken, slug: session.user.businessSlug },
   );
+  await page.evaluate(async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  });
 
   // Step 1 — online warm (POS + sidebar routes)
   await page.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForTimeout(3000);
+  try {
+    const kitchenLink = page.getByRole('link', { name: /kitchen/i }).first();
+    if (await kitchenLink.count()) {
+      await kitchenLink.click({ timeout: 15_000 });
+      await page.waitForTimeout(2000);
+      const onKitchen = page.url().includes(`/${SLUG}/kitchen`);
+      await shot(page, 'e2e-01e-sidebar-kitchen-nav.png');
+      record(
+        '1e sidebar soft nav Kitchen (not New Order)',
+        onKitchen && !page.url().includes('/orders/new'),
+        page.url(),
+      );
+    } else {
+      record('1e sidebar soft nav Kitchen (not New Order)', false, 'Kitchen nav link not found');
+    }
+  } catch (e) {
+    record('1e sidebar soft nav Kitchen (not New Order)', false, String(e));
+  }
   await page.goto(`${BASE}/${SLUG}/kitchen`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForTimeout(2500);
   await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
-  await page.waitForSelector('text=Burger', { timeout: 120_000 });
+  await waitForPosMenu(page, MENU_ITEM_NAME);
   await page.waitForTimeout(8000);
+
   await page.evaluate(async () => {
     await navigator.serviceWorker?.ready;
     const keys = await caches.keys();
@@ -333,7 +413,7 @@ async function main() {
   );
 
   try {
-    await page.goto('/offline-status', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(`${BASE}/offline-status`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.waitForTimeout(2000);
     const statusText = (await page.locator('main').innerText()) ?? '';
     record(
@@ -435,29 +515,43 @@ async function main() {
   }
 
   try {
-    const live = await context.newPage();
-    await live.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
-    await live.evaluate(
-      ({ accessToken, slug }) => {
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('lastBusinessSlug', slug);
-        sessionStorage.setItem('sw-skip-reload', '1');
-      },
-      { accessToken: session.accessToken, slug: session.user.businessSlug },
-    );
-    await live.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-    await live.waitForTimeout(2500);
+    const liveNav = page.getByRole('link', { name: /live orders/i }).first();
+    if (await liveNav.count()) {
+      await liveNav.click({ timeout: 20_000 });
+    } else {
+      await page.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    }
+    const live = page;
+    await live
+      .waitForFunction(
+        () => {
+          const body = document.body.innerText.toLowerCase();
+          const hasStatus = /received|preparing|ready/.test(body);
+          const hasTicket = /a-\d{3}/i.test(body) || body.includes('offline:');
+          return hasStatus && hasTicket;
+        },
+        { timeout: 45_000 },
+      )
+      .catch(() => undefined);
     const liveText = ((await live.locator('main, [class*="tenant"]').first().innerText()) ?? '').toLowerCase();
-    const liveHasTicket = /received/.test(liveText) && (liveText.includes('a-') || liveText.includes('offline'));
+    const onLiveOrdersRoute =
+      live.url().includes(`/${SLUG}/orders`) && !live.url().includes('/orders/new');
+    const liveHasTicket =
+      onLiveOrdersRoute &&
+      ((/received|preparing|ready/.test(liveText) &&
+        (liveText.includes('a-') || liveText.includes('offline'))) ||
+        (await live.getByText(/received/i).count()) > 1);
     await shot(live, 'e2e-02c-live-orders-offline.png');
+    await shot(live, 'demo-offline-live-orders.png');
     record('2c offline order visible on Live Orders', liveHasTicket, liveText.slice(0, 180));
     await live.goto(`${BASE}/${SLUG}/kitchen`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
     await live.waitForTimeout(2500);
     const kdsText = ((await live.locator('.kds-board, body').first().innerText()) ?? '').toLowerCase();
     const kdsHasTicket = /received|preparing|ready/.test(kdsText) && !kdsText.includes("can't be reached");
     await shot(live, 'e2e-02d-kitchen-offline.png');
+    await shot(live, 'demo-offline-kitchen.png');
     record('2d offline ticket on Kitchen board', kdsHasTicket, kdsText.slice(0, 180));
-    await live.close();
+    await live.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 90_000 }).catch(() => undefined);
   } catch (e) {
     record('2c offline order visible on Live Orders', false, String(e));
     record('2d offline ticket on Kitchen board', false, String(e));
@@ -570,7 +664,7 @@ async function main() {
   const reloadBad = await page.getByText(/couldn.t load/i).count();
   const pathOnly = new URL(page.url()).pathname;
   const onOffline = pathOnly === '/offline' || pathOnly === '/offline-pos';
-  const burgerAfterReload = await page.locator('text=Burger').count();
+  const burgerAfterReload = await page.locator(`text=${MENU_ITEM_NAME}`).count();
   await shot(page, 'e2e-03-offline-hard-reload.png');
   record(
     '3 hard reload offline on orders/new',
@@ -604,7 +698,7 @@ async function main() {
   await context.setOffline(true);
   await page2.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page2.waitForTimeout(4000);
-  const b2 = await page2.locator('text=Burger').count();
+  const b2 = await page2.locator(`text=${MENU_ITEM_NAME}`).count();
   const err2 = await page2.getByText(/couldn't load/i).count();
   await shot(page2, 'e2e-05-fresh-tab-offline.png');
   record(

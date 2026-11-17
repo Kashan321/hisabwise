@@ -58,7 +58,13 @@ export function mergeApiWithLocalOrders(
     if (shouldSkipLocalRow(row, byId, apiByIdempotency)) continue;
     const order = row.receiptOrder;
     if (!filters?.includeDrafts && order.isDraft) continue;
-    if (filters?.dateFrom && filters?.dateTo && !orderInDateRange(order, filters.dateFrom, filters.dateTo)) {
+    const localDeviceOrder = isDeviceLocalOrder(order);
+    if (
+      filters?.dateFrom &&
+      filters?.dateTo &&
+      !orderInDateRange(order, filters.dateFrom, filters.dateTo) &&
+      !localDeviceOrder
+    ) {
       continue;
     }
     if (!orderMatchesStatusGroup(order, filters?.statusGroup)) continue;
