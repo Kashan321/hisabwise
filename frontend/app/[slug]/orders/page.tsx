@@ -72,6 +72,10 @@ import { canAddItemsToOpenTab, posAddItemsHref } from '@/lib/open-tab-order';
 import { formatReportRangeLabel, getReportPresetRange } from '@/lib/report-dates';
 import type { Order } from '@/lib/api/types';
 import type { CompleteOrderPaymentPayload } from '@/lib/payment-methods';
+import { useOfflinePos } from '@/components/offline/offline-pos-provider';
+import { useMergedOrdersList } from '@/lib/hooks/use-merged-orders-list';
+import { useOfflineOrderOps } from '@/lib/hooks/use-offline-order-ops';
+import { isDeviceLocalOrder } from '@/lib/offline/local-orders';
 
 type Tab = OrderListFilters['statusGroup'];
 type BusyAction = { orderId: string; type: 'print' | 'status' } | null;
@@ -298,8 +302,33 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
 
   const { data: ordersData, isLoading, isFetching, error: ordersError } = useOrders(queryFilters);
   const { data: filterMeta } = useOrderFilters();
-  const orders = ordersData?.orders ?? [];
-  const total = ordersData?.total ?? 0;
+  const offlinePos = useOfflinePos();
+  const offlineOrderOps = useOfflineOrderOps(offlinePos.scopeKey);
+  const [browserOffline, setBrowserOffline] = useState(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
+  useEffect(() => {
+    const sync = () => setBrowserOffline(!navigator.onLine);
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    sync();
+    return () => {
+      window.removeEventListener('online', sync);
+      window.removeEventListener('offline', sync);
+    };
+  }, []);
+  const apiOrders = ordersData?.orders ?? [];
+  const orders = useMergedOrdersList(
+    apiOrders,
+    offlinePos.scopeKey,
+    {
+      statusGroup: tab,
+      dateFrom: appliedFilters.dateFrom,
+      dateTo: appliedFilters.dateTo,
+    },
+    browserOffline,
+  );
+  const total = Math.max(ordersData?.total ?? 0, orders.length);
   const { data: menuData } = useMenu();
   const categories = menuData?.menu ?? [];
   const { data: tables = [] } = useFloorTables();
@@ -350,7 +379,9 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const { data: detailOrderFull } = useOrder(detailOpen && detailOrder ? detailOrder.id : '');
+  const { data: detailOrderFull } = useOrder(
+    detailOpen && detailOrder && !isDeviceLocalOrder(detailOrder) ? detailOrder.id : '',
+  );
   const displayDetailOrder = detailOrderFull ?? detailOrder;
 
   const { data: activityPreview, isLoading: activityLoading } = useTenantAuditLogs({ limit: 5 });
@@ -548,13 +579,24 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
   function advanceStatus(id: string, status: string) {
     const next = orderNextStatus(status);
     if (!next) return;
+    const order = orders.find((o) => o.id === id);
     if (next === 'COMPLETED') {
-      const order = orders.find((o) => o.id === id);
       setPaymentModal({
         orderId: id,
         total: Number(order?.totalAmount ?? 0),
         label: `Order ${formatOrderLabel(order ?? id)}`,
       });
+      return;
+    }
+    if (offlineOrderOps && order && isDeviceLocalOrder(order)) {
+      void offlineOrderOps
+        .advanceStatus(order)
+        .then(() => {
+          const label =
+            next === 'PREPARING' ? 'Preparing' : next === 'READY' ? 'Ready' : 'Completed';
+          toast.success(`Order marked as ${label}`);
+        })
+        .catch((err) => toast.error(formatApiError(err)));
       return;
     }
     updateStatus.mutate(
@@ -572,6 +614,18 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
 
   function confirmCompleteWithPayment(payload: CompleteOrderPaymentPayload) {
     if (!paymentModal) return;
+    const payTarget = orders.find((o) => o.id === paymentModal.orderId);
+    if (offlineOrderOps && payTarget && isDeviceLocalOrder(payTarget)) {
+      void offlineOrderOps
+        .completeWithPayment(paymentModal.orderId, payload)
+        .then((order) => {
+          toast.success('Order completed');
+          setPaymentModal(null);
+          queuePrintBillPrompt(order, 'order-completed');
+        })
+        .catch((err) => toast.error(formatApiError(err)));
+      return;
+    }
     updateStatus.mutate(
       {
         id: paymentModal.orderId,
@@ -593,6 +647,17 @@ export default function OrdersPage({ params }: { params: Promise<{ slug: string 
 
   function confirmCancelOrder() {
     if (!cancelOrderId) return;
+    const target = orders.find((o) => o.id === cancelOrderId);
+    if (offlineOrderOps && target && isDeviceLocalOrder(target)) {
+      void offlineOrderOps
+        .cancel(cancelOrderId)
+        .then(() => {
+          toast.success('Order cancelled');
+          setCancelOrderId(null);
+        })
+        .catch((err) => toast.error(formatApiError(err)));
+      return;
+    }
     updateStatus.mutate(
       { id: cancelOrderId, status: 'CANCELLED' },
       {

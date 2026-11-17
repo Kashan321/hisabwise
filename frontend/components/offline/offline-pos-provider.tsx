@@ -33,7 +33,8 @@ import {
 import type { PendingOfflineOrderRecord } from '@/lib/offline/db';
 import { isPosEffectivelyOffline } from '@/lib/offline/effective-offline';
 import { rememberLastPosUrl } from '@/lib/offline/pos-shell-storage';
-import { warmPosShellCache } from '@/lib/offline/warm-pos-cache';
+import { warmTenantShellCache } from '@/lib/offline/warm-pos-cache';
+import { isNewOrderShellPath, isTenantShellPath } from '@/lib/offline/tenant-route-patterns';
 import { installPosRouteFetchCache } from '@/lib/offline/pos-fetch-cache';
 import { hydrateTenantQueriesFromSnapshot } from '@/lib/offline/hydrate-tenant-queries';
 import { usePathname } from 'next/navigation';
@@ -206,14 +207,14 @@ export function OfflinePosProvider({ children, slug }: { children: ReactNode; sl
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    const isPosRoute =
-      pathname.includes('/orders/new') ||
-      /\/[^/]+\/orders\/?$/.test(pathname) ||
-      pathname.includes('/waiter/orders');
-    if (!isPosRoute) return;
-    rememberLastPosUrl(pathname.includes('/orders/new') ? pathname : `/${pathname.split('/')[1]}/orders/new`);
+    const shouldWarm =
+      isNewOrderShellPath(pathname) || isTenantShellPath(pathname);
+    if (!shouldWarm) return;
+    if (isNewOrderShellPath(pathname)) {
+      rememberLastPosUrl(pathname);
+    }
     if (apiReachability === 'online' && typeof window !== 'undefined') {
-      void warmPosShellCache(pathname, window.location.href);
+      void warmTenantShellCache(pathname, window.location.href);
     }
   }, [apiReachability, isAuthenticated, pathname]);
 

@@ -32,6 +32,14 @@ import { kitchenBoardThemeStyle } from '@/lib/theme/theme-css';
 import { useToast } from '@/lib/toast';
 import { useTenantDocumentTitle } from '@/lib/hooks/use-document-title';
 import type { Order } from '@/lib/api/types';
+import { offlineScopeKey } from '@/lib/offline/db';
+import { usePendingOrdersForScope } from '@/lib/hooks/use-merged-orders-list';
+import { filterKitchenTickets, mergeApiWithLocalOrders } from '@/lib/offline/merge-orders';
+import { useOfflineKitchenOps } from '@/lib/hooks/use-offline-order-ops';
+import { isDeviceLocalOrder } from '@/lib/offline/local-orders';
+import { isPosEffectivelyOffline } from '@/lib/offline/effective-offline';
+import { getApiReachability } from '@/lib/offline/connectivity';
+import { warmTenantShellCache } from '@/lib/offline/warm-pos-cache';
 
 export default function KitchenPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
@@ -41,7 +49,15 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
   const tenantReady =
     isReady && isAuthenticated && canAccessTenantRoute(user, slug, pathname);
   const toast = useToast();
+  const scopeKey =
+    user?.businessId && user?.id ? offlineScopeKey(user.businessId, user.id) : null;
+  const pendingRows = usePendingOrdersForScope(scopeKey);
+  const kitchenOps = useOfflineKitchenOps(scopeKey);
   const { data: orders = [], isLoading, dataUpdatedAt, isError, isFetching } = useKitchenQueue();
+  const mergedOrders = useMemo(
+    () => filterKitchenTickets(mergeApiWithLocalOrders(orders, pendingRows)),
+    [orders, pendingRows],
+  );
   const { data: tables = [] } = useFloorTables();
   const { data: business } = useBusiness();
   useTenantDocumentTitle('Kitchen', business?.name ?? slug);
@@ -64,17 +80,22 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
   const tableMap = Object.fromEntries(tables.map((t) => [t.id, t.tableIdentifier]));
 
   const received = useMemo(
-    () => sortKitchenOrders(orders.filter((o) => o.status === 'RECEIVED')),
-    [orders],
+    () => sortKitchenOrders(mergedOrders.filter((o) => o.status === 'RECEIVED')),
+    [mergedOrders],
   );
   const preparing = useMemo(
-    () => sortKitchenOrders(orders.filter((o) => o.status === 'PREPARING')),
-    [orders],
+    () => sortKitchenOrders(mergedOrders.filter((o) => o.status === 'PREPARING')),
+    [mergedOrders],
   );
   const ready = useMemo(
-    () => sortKitchenOrders(orders.filter((o) => o.status === 'READY')),
-    [orders],
+    () => sortKitchenOrders(mergedOrders.filter((o) => o.status === 'READY')),
+    [mergedOrders],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.onLine) return;
+    void warmTenantShellCache(`/${slug}/kitchen`, window.location.href);
+  }, [slug]);
 
   useEffect(() => {
     if (isReady && !isAuthenticated) {
@@ -102,7 +123,22 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
     return () => clearInterval(id);
   }, []);
 
+  const effectivelyOffline = isPosEffectivelyOffline({
+    apiReachability: getApiReachability(),
+    browserOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  });
+
   function setTicketStatus(ticketId: string, status: string, successMessage?: string) {
+    const ticket = mergedOrders.find((o) => o.id === ticketId);
+    if (kitchenOps && ticket && isDeviceLocalOrder(ticket)) {
+      void kitchenOps
+        .setStatus(ticketId, status as Order['status'])
+        .then(() => {
+          if (successMessage) toast.success(successMessage);
+        })
+        .catch((err) => toast.error(formatApiError(err)));
+      return;
+    }
     updateStatus.mutate(
       { id: ticketId, status },
       {
@@ -129,9 +165,10 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
   async function handlePrint(order: Order) {
     setPrintingOrderId(order.id);
     try {
-      const full = await apiFetch<{ order: Order }>(`/kitchen/tickets/${order.id}`).then(
-        (d) => d.order,
-      );
+      const full =
+        isDeviceLocalOrder(order) && effectivelyOffline
+          ? order
+          : await apiFetch<{ order: Order }>(`/kitchen/tickets/${order.id}`).then((d) => d.order);
       const label = resolveKitchenServiceLine(full, tableMap);
       printOrderReceipt(full, {
         tableLabel: label,
@@ -259,7 +296,13 @@ export default function KitchenPage({ params }: { params: Promise<{ slug: string
         counts={{ RECEIVED: received.length, PREPARING: preparing.length, READY: ready.length }}
       />
 
-      {isLoading ? (
+      {effectivelyOffline && !navigator.onLine ? (
+        <p className="px-4 py-2 text-center text-sm text-on-surface-variant" role="status">
+          Offline — tickets include orders punched on this device; synced when back online.
+        </p>
+      ) : null}
+
+      {isLoading && !mergedOrders.length ? (
         <KitchenLoading />
       ) : (
         <main className="kds-main">

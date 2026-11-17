@@ -29,10 +29,25 @@ function isRscRequest(request: Request): boolean {
   return request.headers.get('RSC') === '1';
 }
 
+const TENANT_SHELL =
+  /^\/[^/]+\/(orders|kitchen|menu|dashboard|tables|inventory|staff|reports|waiter|floor-plan|settings|terminal|display)(\/|$)/;
+
+function isNewOrderShellPath(pathname: string): boolean {
+  return /^\/[^/]+\/(orders\/new|waiter\/orders\/new)\/?$/.test(pathname);
+}
+
+function isTenantShellPath(pathname: string): boolean {
+  if (pathname === '/login' || pathname === '/' || pathname === '/offline' || pathname === '/offline-status') {
+    return true;
+  }
+  if (pathname.startsWith('/platform')) return false;
+  return TENANT_SHELL.test(pathname);
+}
+
 function isPosRelatedPath(pathname: string): boolean {
   if (SHELL_PATHS.includes(pathname as (typeof SHELL_PATHS)[number])) return true;
   if (pathname === '/') return true;
-  return /^\/[^/]+\/(orders(\/new)?|waiter\/orders(\/new)?)(\/|$)/.test(pathname);
+  return isNewOrderShellPath(pathname) || isTenantShellPath(pathname);
 }
 
 async function readCachedDocument(request: Request, url: URL): Promise<Response | undefined> {
@@ -88,7 +103,7 @@ async function offlineNavigateResponse(request: Request): Promise<Response> {
     /* continue to shells */
   }
 
-  if (isPosRelatedPath(url.pathname)) {
+  if (isNewOrderShellPath(url.pathname)) {
     const posShell = (await precachedShell('/offline-pos')) ?? (await precachedShell('/offline'));
     if (posShell) return posShell;
   }
@@ -98,11 +113,15 @@ async function offlineNavigateResponse(request: Request): Promise<Response> {
     if (login) return login;
   }
 
-  const generic =
-    (await precachedShell('/offline-pos')) ??
-    (await precachedShell('/offline')) ??
-    (await precachedShell('/login'));
-  if (generic) return generic;
+  if (isTenantShellPath(url.pathname)) {
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Offline</title></head><body><p>Open <strong>${url.pathname}</strong> once while online on this host, then try again.</p></body></html>`,
+      { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  const offlinePage = await precachedShell('/offline');
+  if (offlinePage) return offlinePage;
 
   return new Response(
     '<!DOCTYPE html><html><body><p>Offline — open Hisabwise once while online on this device.</p></body></html>',
@@ -150,18 +169,6 @@ const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   precacheOptions: {
     cleanupOutdatedCaches: true,
-    navigateFallback: '/offline-pos',
-    navigateFallbackAllowlist: [
-      /^\/$/,
-      /^\/login\/?$/,
-      /^\/offline\/?$/,
-      /^\/offline-pos\/?$/,
-      /^\/[^/]+\/orders\/?$/,
-      /^\/[^/]+\/orders\/new\/?$/,
-      /^\/[^/]+\/waiter\/orders\/?$/,
-      /^\/[^/]+\/waiter\/orders\/new\/?$/,
-    ],
-    navigateFallbackDenylist: [/^\/api\//, /^\/_next\//],
     ignoreURLParametersMatching: [/^utm_/, /^fbclid$/],
   },
   skipWaiting: true,

@@ -77,8 +77,8 @@ async function warmRscVariants(documentUrl: string) {
   }
 }
 
-/** Persist the POS document and RSC flight payloads for offline hard reloads. */
-export async function warmPosShellCache(pathname: string, href?: string) {
+/** Persist a tenant route document + RSC flight payloads for offline navigation and hard reloads. */
+export async function warmTenantShellCache(pathname: string, href?: string) {
   if (typeof window === 'undefined' || !navigator.onLine) return;
 
   rememberLastPosUrl(pathname);
@@ -107,18 +107,21 @@ export async function warmPosShellCache(pathname: string, href?: string) {
   }
 }
 
+/** @deprecated alias */
+export const warmPosShellCache = warmTenantShellCache;
+
 /** Record live RSC responses the App Router fetches while online (exact cache keys). */
-export function startPosRscCapture(slug: string) {
+export function startTenantRscCapture(slug: string) {
   if (typeof window === 'undefined' || !navigator.serviceWorker?.controller) return () => undefined;
 
-  const pathname = `/${slug}/orders/new`;
+  const prefix = `/${slug}/`;
 
   const observer = new PerformanceObserver((list) => {
     if (!navigator.onLine) return;
     for (const entry of list.getEntries()) {
       const res = entry as PerformanceResourceTiming;
       if (res.initiatorType !== 'fetch' && res.initiatorType !== 'other') continue;
-      if (!res.name.includes(pathname)) continue;
+      if (!res.name.includes(prefix)) continue;
       if (!res.name.includes('_rsc') && !res.name.includes('RSC')) continue;
       void fetch(res.name, { credentials: 'same-origin', headers: { RSC: '1' } })
         .then(async (response) => {
@@ -140,3 +143,5 @@ export function startPosRscCapture(slug: string) {
 
   return () => observer.disconnect();
 }
+
+export const startPosRscCapture = startTenantRscCapture;

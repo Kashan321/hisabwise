@@ -229,6 +229,28 @@ export async function addItemsToLocalOrder(input: AddOfflineItemsInput) {
   return receiptOrder;
 }
 
+export async function updateLocalOrderStatus(
+  scopeKey: string,
+  orderId: string,
+  status: Order['status'],
+) {
+  const row = await findPendingRow(scopeKey, orderId);
+  if (!row) {
+    throw new Error('Offline order not found.');
+  }
+  const receiptOrder = {
+    ...row.receiptOrder,
+    status,
+    updatedAt: new Date().toISOString(),
+  } as Order;
+  await offlineDb.pendingOrders.update(row.id, {
+    receiptOrder,
+    syncStatus: row.syncStatus === 'synced' ? 'pending' : row.syncStatus,
+  });
+  emitQueueChanged();
+  return receiptOrder;
+}
+
 export async function advanceLocalOrderStatus(scopeKey: string, orderId: string) {
   const row = await findPendingRow(scopeKey, orderId);
   if (!row) {

@@ -296,7 +296,11 @@ async function main() {
     { accessToken: session.accessToken, slug: session.user.businessSlug },
   );
 
-  // Step 1 — online warm
+  // Step 1 — online warm (POS + sidebar routes)
+  await page.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+  await page.waitForTimeout(3000);
+  await page.goto(`${BASE}/${SLUG}/kitchen`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+  await page.waitForTimeout(2500);
   await page.goto(POS_URL, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForSelector('text=Burger', { timeout: 120_000 });
   await page.waitForTimeout(8000);
@@ -428,6 +432,35 @@ async function main() {
   } catch (e) {
     await shot(page, 'e2e-02-offline-order-1-FAIL.png');
     record('2 offline punch stays RECEIVED', false, String(e));
+  }
+
+  try {
+    const live = await context.newPage();
+    await live.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await live.evaluate(
+      ({ accessToken, slug }) => {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('lastBusinessSlug', slug);
+        sessionStorage.setItem('sw-skip-reload', '1');
+      },
+      { accessToken: session.accessToken, slug: session.user.businessSlug },
+    );
+    await live.goto(`${BASE}/${SLUG}/orders`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await live.waitForTimeout(2500);
+    const liveText = ((await live.locator('main, [class*="tenant"]').first().innerText()) ?? '').toLowerCase();
+  const liveHasTicket = /received/.test(liveText) && (liveText.includes('a-') || liveText.includes('offline'));
+    await shot(live, 'e2e-02c-live-orders-offline.png');
+    record('2c offline order visible on Live Orders', liveHasTicket, liveText.slice(0, 180));
+    await live.goto(`${BASE}/${SLUG}/kitchen`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await live.waitForTimeout(2500);
+    const kdsText = ((await live.locator('.kds-board, body').first().innerText()) ?? '').toLowerCase();
+    const kdsHasTicket = /received|preparing|ready/.test(kdsText) && !kdsText.includes("can't be reached");
+    await shot(live, 'e2e-02d-kitchen-offline.png');
+    record('2d offline ticket on Kitchen board', kdsHasTicket, kdsText.slice(0, 180));
+    await live.close();
+  } catch (e) {
+    record('2c offline order visible on Live Orders', false, String(e));
+    record('2d offline ticket on Kitchen board', false, String(e));
   }
 
   let editBillUrl = POS_URL;

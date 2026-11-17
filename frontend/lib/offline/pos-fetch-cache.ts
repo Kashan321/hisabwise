@@ -42,15 +42,23 @@ async function readFromOfflineCaches(url: string) {
   return null;
 }
 
+function isTenantAppPath(pathname: string): boolean {
+  if (pathname.startsWith('/platform') || pathname.startsWith('/api')) return false;
+  return /^\/[^/]+\/[^/]+/.test(pathname) || pathname === '/login';
+}
+
 async function persistOnlineResponse(url: string, response: Response, init?: RequestInit) {
   if (!response.ok || response.redirected || !navigator.onLine) return;
   const parsed = new URL(url);
   if (parsed.pathname.startsWith('/api/')) return;
+  if (!isTenantAppPath(parsed.pathname) && parsed.pathname !== '/login') return;
 
   const cachesToWrite: string[] = [];
-  if (parsed.pathname.includes('/orders/new') || url.includes('_rsc')) {
-    cachesToWrite.push(POS_FETCH_CACHE, RSC_CACHE);
-  } else if (isRscRequest(url, init)) {
+  if (isRscRequest(url, init) || url.includes('_rsc')) {
+    cachesToWrite.push(RSC_CACHE, POS_FETCH_CACHE, 'pos-route-all', 'pages');
+  } else if (parsed.pathname.includes('/orders/new')) {
+    cachesToWrite.push(POS_FETCH_CACHE, 'pages', 'pos-route-all');
+  } else if (isTenantAppPath(parsed.pathname)) {
     cachesToWrite.push(RSC_CACHE);
   } else {
     return;

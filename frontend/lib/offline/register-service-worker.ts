@@ -3,13 +3,7 @@ export function registerAppServiceWorker() {
   if (typeof window === 'undefined' || process.env.NODE_ENV !== 'production') return;
   if (!('serviceWorker' in navigator)) return;
 
-  const maybeReloadForControl = () => {
-    if (navigator.serviceWorker.controller) return;
-    if (sessionStorage.getItem('sw-skip-reload') === '1') return;
-    if (sessionStorage.getItem('sw-awaiting-control-reload') === '1') return;
-    sessionStorage.setItem('sw-awaiting-control-reload', '1');
-    window.location.reload();
-  };
+  let pendingSwUpdateReload = false;
 
   const register = () => {
     void navigator.serviceWorker
@@ -18,22 +12,17 @@ export function registerAppServiceWorker() {
         const listen = (worker: ServiceWorker | null) => {
           if (!worker) return;
           worker.addEventListener('statechange', () => {
-            if (worker.state === 'activated') {
-              maybeReloadForControl();
-            }
             if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              pendingSwUpdateReload = true;
               worker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         };
         listen(registration.installing);
-        listen(registration.active);
         registration.addEventListener('updatefound', () => listen(registration.installing));
         if (registration.waiting && navigator.serviceWorker.controller) {
+          pendingSwUpdateReload = true;
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-        if (registration.active && !navigator.serviceWorker.controller) {
-          maybeReloadForControl();
         }
       })
       .catch((err) => {
@@ -47,9 +36,8 @@ export function registerAppServiceWorker() {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (sessionStorage.getItem('sw-skip-reload') === '1') return;
     if (refreshing) return;
-    if (sessionStorage.getItem('sw-awaiting-control-reload') === '1') {
-      sessionStorage.removeItem('sw-awaiting-control-reload');
-    }
+    if (!pendingSwUpdateReload) return;
+    pendingSwUpdateReload = false;
     refreshing = true;
     window.location.reload();
   });
