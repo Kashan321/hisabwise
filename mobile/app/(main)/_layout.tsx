@@ -1,13 +1,24 @@
 import { Tabs } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { View } from 'react-native';
+import { type ColorValue, View } from 'react-native';
 
 import { OperationStatusBar } from '@/components/OperationStatusBar';
 import { useCart } from '@/lib/cart/CartContext';
 import { colors } from '@/constants/theme';
 
-function TabIcon(props: { name: React.ComponentProps<typeof FontAwesome>['name']; color: string }) {
-  return <FontAwesome size={22} style={{ marginBottom: -2 }} {...props} />;
+function TabIcon(props: {
+  name: React.ComponentProps<typeof FontAwesome>['name'];
+  color: ColorValue | undefined;
+}) {
+  const iconColor = typeof props.color === 'string' ? props.color : colors.primary;
+  return (
+    <FontAwesome
+      name={props.name}
+      size={22}
+      color={iconColor}
+      style={{ marginBottom: -2 }}
+    />
+  );
 }
 
 export default function MainTabsLayout() {

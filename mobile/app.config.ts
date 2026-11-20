@@ -10,13 +10,7 @@ const config: ExpoConfig = {
   icon: './assets/images/icon.png',
   scheme: 'hisabwise',
   userInterfaceStyle: 'automatic',
-  newArchEnabled: true,
   owner: 'kashan3241',
-  splash: {
-    image: './assets/images/splash-icon.png',
-    resizeMode: 'contain',
-    backgroundColor: '#0f766e',
-  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.hisabwise.pos',
@@ -27,14 +21,24 @@ const config: ExpoConfig = {
       backgroundColor: '#0f766e',
     },
     package: 'com.hisabwise.pos',
-    edgeToEdgeEnabled: true,
   },
   web: {
     bundler: 'metro',
     output: 'static',
     favicon: './assets/images/favicon.png',
   },
-  plugins: ['expo-router', 'expo-secure-store'],
+  plugins: [
+    'expo-router',
+    'expo-secure-store',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/images/splash-icon.png',
+        resizeMode: 'contain',
+        backgroundColor: '#0f766e',
+      },
+    ],
+  ],
   experiments: {
     typedRoutes: true,
   },

@@ -2,6 +2,8 @@
 
 Phone-first React Native app for HisabWise staff POS. It talks to the **same** `/api/v1` backend as the Next.js web POS (`frontend/`).
 
+**Expo SDK 58** (latest stable on npm: `expo@58.0.26`) with React 19.3 and React Native 0.88.
+
 ## Requirements
 
 - Node.js 20+
@@ -33,9 +35,10 @@ npm run android    # Expo Go / emulator
 npm run ios        # Expo Go / simulator (macOS for native build)
 npm run web        # quick UI smoke test in the browser
 npm run typecheck  # TypeScript
+npx expo-doctor    # SDK compatibility check
 ```
 
-Scan the QR code with **Expo Go** (SDK 54) or press `w` for web.
+Scan the QR code with **Expo Go** (SDK 58) or press `w` for web.
 
 For a **development client** (when you need custom native modules later):
 
