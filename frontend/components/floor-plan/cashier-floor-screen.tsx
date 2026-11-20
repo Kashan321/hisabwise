@@ -14,9 +14,12 @@ import {
   floorHeaderStats,
   formatMinutesSeated,
   normalizeTableIdentifier,
+  isStuckOccupiedTable,
   resolveCashierTableStatus,
   type CashierTableStatus,
 } from '@/lib/floor-cashier/table-display';
+import { hasAnyPermission } from '@/lib/auth/permissions';
+import { useAuth } from '@/lib/auth/auth-context';
 import {
   useDeleteTable,
   useFreeTable,
@@ -93,6 +96,7 @@ export function CashierFloorScreen({
   orders,
   isLoading,
   canEditLayout,
+  canFreeTable,
   onEditLayout,
   onAddTable,
 }: {
@@ -104,9 +108,14 @@ export function CashierFloorScreen({
   orders: Order[];
   isLoading: boolean;
   canEditLayout: boolean;
+  canFreeTable?: boolean;
   onEditLayout: () => void;
   onAddTable: () => void;
 }) {
+  const { user } = useAuth();
+  const canFree =
+    canFreeTable ??
+    hasAnyPermission(user, ['floor.manage', 'orders.manage', 'orders.serve', 'cash.shift', 'orders.create', '*']);
   const toast = useToast();
   const formatMoney = useFormatMoney();
   const { data: business } = useBusiness();
@@ -164,6 +173,10 @@ export function CashierFloorScreen({
     const orderOnTable = activeOrderByTable[table.id];
     const status = resolveCashierTableStatus(table, orderOnTable);
     if (status === 'free') {
+      if (isStuckOccupiedTable(table, orderOnTable)) {
+        setSheetTable(table);
+        return;
+      }
       window.location.href = `/${slug}/orders/new?tableId=${table.id}&dineIn=1`;
       return;
     }
@@ -374,7 +387,34 @@ export function CashierFloorScreen({
         title={sheetTable ? `Table ${normalizeTableIdentifier(sheetTable.tableIdentifier)}` : ''}
         width="lg"
       >
-        {order && sheetTable ? (
+        {sheetTable && !order && isStuckOccupiedTable(sheetTable, activeOrderByTable[sheetTable.id]) ? (
+          <div className="space-y-4 pb-4">
+            <p className="text-sm font-semibold text-on-surface-variant">
+              This table is marked occupied but has no open bill. Start a new order or free it for
+              the floor plan.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Link
+                href={`/${slug}/orders/new?tableId=${sheetTable.id}&dineIn=1`}
+                className="block"
+              >
+                <Button type="button" variant="primary" className={`w-full ${MIN_TAP}`}>
+                  New order
+                </Button>
+              </Link>
+              {canFree ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={MIN_TAP}
+                  onClick={() => setConfirmFree(true)}
+                >
+                  Free table
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : order && sheetTable ? (
           <div className="space-y-4 pb-4">
             <p className="text-sm font-semibold text-on-surface-variant">
               {formatOrderLabel(order)} · {formatMoney(order.totalAmount)}
@@ -432,14 +472,16 @@ export function CashierFloorScreen({
                     >
                       Merge tables
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={`w-full ${MIN_TAP}`}
-                      onClick={() => setConfirmFree(true)}
-                    >
-                      Free table
-                    </Button>
+                    {canFree ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`w-full ${MIN_TAP}`}
+                        onClick={() => setConfirmFree(true)}
+                      >
+                        Free table
+                      </Button>
+                    ) : null}
                   </>
                 ) : null}
                 {transferPick ? (

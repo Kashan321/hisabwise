@@ -28,6 +28,7 @@ import {
 import { normalizeCompleteOrderInput } from '../../application/services/order-payment.service';
 import {
   OrderRepository,
+  OrderStatusUpdateSideEffects,
   UpdateOrderStatusOptions,
 } from '../../domain/repositories/order.repository';
 import {
@@ -116,6 +117,41 @@ async function syncTableWaiterAssignment(
       data: { assignedWaiterId: null },
     });
   }
+}
+
+async function releaseTableIfNoActiveOrders(
+  tx: {
+    order: { count: (args: { where: Record<string, unknown> }) => Promise<number> };
+    floorTable: {
+      update: (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown>;
+    };
+  },
+  businessId: string,
+  tableId: string | null | undefined,
+): Promise<boolean> {
+  if (!tableId) return false;
+  const activeOnTable = await tx.order.count({
+    where: {
+      businessId,
+      tableId,
+      isDraft: false,
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+    },
+  });
+  if (activeOnTable > 0) return false;
+  await tx.floorTable.update({
+    where: { id: tableId },
+    data: { status: PrismaTableStatus.AVAILABLE, assignedWaiterId: null },
+  });
+  return true;
+}
+
+function emitTableReleased(businessId: string, tableId: string) {
+  emitDomainEvent('table.status_changed', {
+    businessId,
+    tableId,
+    status: PrismaTableStatus.AVAILABLE,
+  });
 }
 
 function recalculateTotalsAfterSubtotalChange(
@@ -688,6 +724,7 @@ export class PrismaOrderRepository implements OrderRepository {
     status: OrderStatus,
     options?: UpdateOrderStatusOptions | CompleteOrderInput | PaymentMethod,
     tx?: Prisma.TransactionClient,
+    sideEffects?: OrderStatusUpdateSideEffects,
   ): Promise<OrderEntity> {
     const client = tx ?? getRawPrismaClient();
     const existing = await client.order.findFirst({ where: { id: orderId, businessId } });
@@ -703,11 +740,14 @@ export class PrismaOrderRepository implements OrderRepository {
         include: orderInclude,
       });
       if (existing.tableId) {
-        await client.floorTable.update({
-          where: { id: existing.tableId },
-          data: { status: PrismaTableStatus.AVAILABLE },
-        });
-        await syncTableWaiterAssignment(client, businessId, existing.tableId);
+        const released = await releaseTableIfNoActiveOrders(client, businessId, existing.tableId);
+        if (!released) {
+          await syncTableWaiterAssignment(client, businessId, existing.tableId);
+        } else if (sideEffects) {
+          sideEffects.tableReleasedId = existing.tableId;
+        } else if (!tx) {
+          emitTableReleased(businessId, existing.tableId);
+        }
       }
       return mapOrderResolved(order);
     }
@@ -766,15 +806,15 @@ export class PrismaOrderRepository implements OrderRepository {
       include: orderInclude,
     });
 
-    if (status === 'COMPLETED' && existing.tableId) {
-      await client.floorTable.update({
-        where: { id: existing.tableId },
-        data: { status: PrismaTableStatus.AVAILABLE },
-      });
-    }
-
     if ((status === 'COMPLETED' || status === 'CANCELLED') && existing.tableId) {
-      await syncTableWaiterAssignment(client, businessId, existing.tableId);
+      const released = await releaseTableIfNoActiveOrders(client, businessId, existing.tableId);
+      if (!released) {
+        await syncTableWaiterAssignment(client, businessId, existing.tableId);
+      } else if (sideEffects) {
+        sideEffects.tableReleasedId = existing.tableId;
+      } else if (!tx) {
+        emitTableReleased(businessId, existing.tableId);
+      }
     }
 
     if (status === 'COMPLETED' || status === 'CANCELLED') {
@@ -1327,6 +1367,8 @@ export class PrismaOrderRepository implements OrderRepository {
         ? await inventoryStockService.prepareReversal(businessId, orderId)
         : null;
 
+    let tableReleasedId: string | undefined;
+
     const updated = await getRawPrismaClient().$transaction(
       async (tx) => {
         const reviewed = await tx.orderChangeRequest.update({
@@ -1349,7 +1391,13 @@ export class PrismaOrderRepository implements OrderRepository {
               data: { status: 'CANCELLED' },
             });
             if (cancelled.tableId) {
-              await syncTableWaiterAssignment(tx, businessId, cancelled.tableId);
+              const released = await releaseTableIfNoActiveOrders(tx, businessId, cancelled.tableId);
+              if (!released) {
+                await syncTableWaiterAssignment(tx, businessId, cancelled.tableId);
+              } else {
+                tableReleasedId = cancelled.tableId;
+              }
+              await clearActiveKitchenTicketsForOrder(tx, orderId);
             }
           } else if (request.type === 'REMOVE_ITEM') {
             const payload = request.payload as { orderItemId?: string } | null;
@@ -1368,6 +1416,10 @@ export class PrismaOrderRepository implements OrderRepository {
 
     if (reversalPlan) {
       emitDomainEvent('inventory.stock_changed', { businessId, orderId });
+    }
+
+    if (tableReleasedId) {
+      emitTableReleased(businessId, tableReleasedId);
     }
 
     return mapChangeRequest(updated);

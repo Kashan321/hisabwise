@@ -29,7 +29,12 @@ export class FreeTableUseCase {
       throw new TableHasOpenBillError();
     }
 
-    const updated = await this.tableRepository.updateStatus(businessId, tableId, 'AVAILABLE');
+    await prisma.floorTable.update({
+      where: { id: tableId },
+      data: { status: 'AVAILABLE', assignedWaiterId: null },
+    });
+    const updated = await this.tableRepository.findById(businessId, tableId);
+    if (!updated) throw new TableNotFoundError();
     emitDomainEvent('table.status_changed', { tableId, businessId, status: 'AVAILABLE' });
 
     await tenantAuditService.log({

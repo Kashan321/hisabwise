@@ -1114,6 +1114,7 @@ export function useUpdateOrderStatus() {
       replaceOrderInCache(qc, data.order);
       reconcileInBackground(qc, ['orders']);
       reconcileInBackground(qc, ['kitchen', 'queue']);
+      invalidateFloorPlan(qc);
     },
   });
 }

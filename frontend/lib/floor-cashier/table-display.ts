@@ -16,7 +16,6 @@ export function resolveCashierTableStatus(
     if (order.status === 'READY') return 'bill_printed';
     return 'busy';
   }
-  if (table.status === 'OCCUPIED') return 'busy';
   return 'free';
 }
 
@@ -54,6 +53,11 @@ export function formatMinutesSeated(iso: string): string {
   const h = Math.floor(m / 60);
   const r = m % 60;
   return r ? `${h}h ${r}m` : `${h}h`;
+}
+
+/** DB still OCCUPIED but no open dine-in bill (e.g. after cancel without release). */
+export function isStuckOccupiedTable(table: FloorTable, order?: Order | null): boolean {
+  return table.status === 'OCCUPIED' && !order;
 }
 
 export function isOpenDineInOrder(order: Order): boolean {

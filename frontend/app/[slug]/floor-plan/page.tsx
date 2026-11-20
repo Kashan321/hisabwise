@@ -7,7 +7,7 @@ import { CashierFloorScreen } from '@/components/floor-plan/cashier-floor-screen
 import { nextNonOverlappingTableLayout } from '@/lib/floor-plan/table-layout-utils';
 import { normalizeTableIdentifier } from '@/lib/floor-cashier/table-display';
 import { useAuth } from '@/lib/auth/auth-context';
-import { hasPermission } from '@/lib/auth/permissions';
+import { hasAnyPermission, hasPermission } from '@/lib/auth/permissions';
 import { useTenantRealtime } from '@/lib/hooks/use-tenant-realtime';
 import { FloorElementNode } from '@/components/floor-plan/floor-element-node';
 import { FloorPlanViewport } from '@/components/floor-plan/floor-plan-viewport';
@@ -171,6 +171,14 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
 
   const { user } = useAuth();
   const canEditLayout = hasPermission(user, 'floor.manage');
+  const canFreeTable = hasAnyPermission(user, [
+    'floor.manage',
+    'orders.manage',
+    'orders.serve',
+    'cash.shift',
+    'orders.create',
+    '*',
+  ]);
   useTenantRealtime();
 
   const { data: ordersData } = useOrders(
@@ -844,6 +852,7 @@ export default function FloorPlanPage({ params }: { params: Promise<{ slug: stri
           orders={orders}
           isLoading={isLoading}
           canEditLayout={canEditLayout}
+          canFreeTable={canFreeTable}
           onEditLayout={() => setScreenMode('edit')}
           onAddTable={() => setTableModalOpen(true)}
         />

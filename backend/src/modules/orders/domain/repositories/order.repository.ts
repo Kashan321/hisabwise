@@ -19,6 +19,10 @@ export interface UpdateOrderStatusOptions {
   actorId?: string;
 }
 
+export interface OrderStatusUpdateSideEffects {
+  tableReleasedId?: string;
+}
+
 export interface OrderRepository {
   create(
     businessId: string,
@@ -34,6 +38,7 @@ export interface OrderRepository {
     status: OrderStatus,
     options?: UpdateOrderStatusOptions | CompleteOrderInput | PaymentMethod,
     tx?: import('@prisma/client').Prisma.TransactionClient,
+    sideEffects?: OrderStatusUpdateSideEffects,
   ): Promise<OrderEntity>;
   addItems(
     businessId: string,

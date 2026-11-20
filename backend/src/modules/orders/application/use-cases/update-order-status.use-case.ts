@@ -8,7 +8,10 @@ import {
   normalizeCompleteOrderInput,
 } from '../services/order-payment.service';
 import { CompleteOrderInput, OrderStatus } from '../../domain/entities/order.entity';
-import { OrderRepository } from '../../domain/repositories/order.repository';
+import {
+  OrderRepository,
+  type OrderStatusUpdateSideEffects,
+} from '../../domain/repositories/order.repository';
 import { InvalidOrderStatusError, OrderNotFoundError } from '../../domain/errors/order.errors';
 import { inventoryStockService } from '../../../inventory/application/services/inventory-stock.service';
 import { tenantAuditService } from '../../../../shared/audit/tenant-audit.service';
@@ -51,6 +54,8 @@ export class UpdateOrderStatusUseCase {
       completion: completionInput,
     };
 
+    const tableReleaseEffects: OrderStatusUpdateSideEffects = {};
+
     if (status === 'COMPLETED') {
       const deductionPlan = await inventoryStockService.prepareDeduction(businessId, orderId);
       updated = await getRawPrismaClient().$transaction(
@@ -61,6 +66,7 @@ export class UpdateOrderStatusUseCase {
             status,
             statusOptions,
             tx,
+            tableReleaseEffects,
           );
           if (deductionPlan) {
             await inventoryStockService.commitDeduction(deductionPlan, actorId, tx);
@@ -112,6 +118,7 @@ export class UpdateOrderStatusUseCase {
             status,
             { actorId },
             tx,
+            tableReleaseEffects,
           );
           if (cashRefundTotal > 0 && openShift && actorId) {
             await cashShiftModule.repository.recordCashRefund(
@@ -151,7 +158,17 @@ export class UpdateOrderStatusUseCase {
         orderId,
         status,
         { actorId },
+        undefined,
+        tableReleaseEffects,
       );
+    }
+
+    if (tableReleaseEffects.tableReleasedId) {
+      emitDomainEvent('table.status_changed', {
+        businessId,
+        tableId: tableReleaseEffects.tableReleasedId,
+        status: 'AVAILABLE',
+      });
     }
 
     emitDomainEvent('order.status_changed', {

@@ -84,7 +84,13 @@ floorPlanRouter.patch(
 floorPlanRouter.post(
   '/tables/:id/free',
   requireAuth,
-  requireAnyPermission('floor.manage', 'orders.manage', 'orders.serve'),
+  requireAnyPermission(
+    'floor.manage',
+    'orders.manage',
+    'orders.serve',
+    'cash.shift',
+    'orders.create',
+  ),
   floorPlanController.freeTable,
 );
 
