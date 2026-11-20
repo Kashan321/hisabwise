@@ -9,10 +9,19 @@ import { listBusinessDaysQuerySchema } from './business-day.validators';
 
 const canManage = requireAnyPermission('business.manage', 'orders.manage', '*');
 const canView = requireAnyPermission('reports.view', 'orders.manage', 'business.manage', '*');
+const canViewCurrent = requireAnyPermission(
+  'reports.view',
+  'orders.manage',
+  'business.manage',
+  'cash.shift',
+  'orders.create',
+  'orders.view',
+  '*',
+);
 
 export const businessDayRouter = Router();
 
-businessDayRouter.get('/current', requireAuth, canView, businessDayController.getCurrent);
+businessDayRouter.get('/current', requireAuth, canViewCurrent, businessDayController.getCurrent);
 businessDayRouter.post('/open', requireAuth, canManage, businessDayController.open);
 businessDayRouter.get(
   '/',

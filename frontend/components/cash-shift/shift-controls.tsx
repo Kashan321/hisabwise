@@ -63,8 +63,15 @@ export function ShiftPowerButton() {
 function ShiftOpenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
   const openShift = useOpenCashShift();
-  const { data: businessDayState } = useCurrentBusinessDay();
+  const {
+    data: businessDayState,
+    isLoading: businessDayLoading,
+    isError: businessDayError,
+    isSuccess: businessDaySuccess,
+  } = useCurrentBusinessDay({ enabled: open });
   const businessDay = businessDayState?.businessDay;
+  const dayClosed = businessDaySuccess && businessDay == null;
+  const canStartShift = businessDaySuccess && businessDay != null;
   const [openingCash, setOpeningCash] = useState('');
   const [error, setError] = useState('');
 
@@ -98,8 +105,8 @@ function ShiftOpenModal({ open, onClose }: { open: boolean; onClose: () => void 
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
             variant="primary"
-            loading={openShift.isPending}
-            disabled={!businessDay}
+            loading={openShift.isPending || businessDayLoading}
+            disabled={!canStartShift}
             onClick={handleSubmit}
           >
             Start shift
@@ -107,7 +114,15 @@ function ShiftOpenModal({ open, onClose }: { open: boolean; onClose: () => void 
         </>
       }
     >
-      {!businessDay && (
+      {businessDayLoading && (
+        <p className="mb-3 text-sm text-on-surface-variant">Checking business day…</p>
+      )}
+      {businessDayError && (
+        <p className="mb-3 text-sm text-error bg-error-container/20 border border-error/30 rounded-lg px-3 py-2">
+          Could not verify the business day. Refresh the page or try again.
+        </p>
+      )}
+      {dayClosed && (
         <p className="mb-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Open the business day before starting a cash shift.
         </p>
