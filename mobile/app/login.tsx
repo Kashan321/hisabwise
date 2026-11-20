@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '@/lib/auth/AuthContext';
 import { ApiError } from '@/lib/api/client';
@@ -48,6 +49,13 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style="light" />
       <View style={styles.hero}>
+        <Ionicons
+          name="warning"
+          size={40}
+          color="#F5B700"
+          style={styles.warningIcon}
+          accessibilityLabel="Warning"
+        />
         <Text style={styles.brand}>HisabWise</Text>
         <Text style={styles.subtitle}>Mobile POS</Text>
       </View>
@@ -107,9 +115,15 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.primaryDark },
-  hero: { paddingTop: 72, paddingHorizontal: 24, paddingBottom: 24 },
-  brand: { fontSize: 32, fontWeight: '800', color: '#fff' },
-  subtitle: { fontSize: 16, color: '#ccfbf1', marginTop: 4 },
+  hero: {
+    paddingTop: 56,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  warningIcon: { marginBottom: 12 },
+  brand: { fontSize: 32, fontWeight: '800', color: '#fff', textAlign: 'center' },
+  subtitle: { fontSize: 16, color: '#ccfbf1', marginTop: 4, textAlign: 'center' },
   card: {
     flex: 1,
     backgroundColor: colors.surface,
